@@ -724,51 +724,129 @@ function showAuraEffectOnPlayer(x, y, aura) {
 // ==================== КЛАСС PLAYER ====================
 class Player {
     constructor() { this.reset(); }
+    
     reset() {
-        this.width = CONFIG.player.width; this.height = CONFIG.player.height;
-        this.x = 100; this.y = 200; this.velX = 0; this.velY = 0; this.jumping = false; this.jumpCount = 0;
-        this.color = '#4af626'; this.speed = CONFIG.player.speed; this.jumpPower = CONFIG.player.jumpPower;
-        this.gravity = CONFIG.player.gravity; this.friction = CONFIG.player.friction;
-        this.trail = []; this.maxTrail = 8; this.invulnerable = 0;
-        this.dashCharges = CONFIG.player.maxDashes; this.dashCooldown = 0; this.isDashing = false;
-        this.dashTimer = 0; this.dashDirection = 1; this.lastCheckpoint = { x: 100, y: 200 };
-        this.meleeCooldown = 0; this.swingEffect = 0;
+        this.width = CONFIG.player.width;
+        this.height = CONFIG.player.height;
+        this.x = 100;
+        this.y = 200;
+        this.velX = 0;
+        this.velY = 0;
+        this.jumping = false;
+        this.jumpCount = 0;
+        this.color = '#4af626';
+        this.speed = CONFIG.player.speed;
+        this.jumpPower = CONFIG.player.jumpPower;
+        this.gravity = CONFIG.player.gravity;
+        this.friction = CONFIG.player.friction;
+        this.trail = [];
+        this.maxTrail = 8;
+        this.invulnerable = 0;
+        this.dashCharges = CONFIG.player.maxDashes;
+        this.dashCooldown = 0;
+        this.isDashing = false;
+        this.dashTimer = 0;
+        this.dashDirection = 1;
+        this.lastCheckpoint = { x: 100, y: 200 };
+        this.meleeCooldown = 0;
+        this.swingEffect = 0;
         return this;
     }
+    
     update(keys) {
         if (this.invulnerable > 0) this.invulnerable--; 
         if (this.dashCooldown > 0) this.dashCooldown--;
         if (this.meleeCooldown > 0) this.meleeCooldown--;
         if (this.swingEffect > 0) this.swingEffect--;
         
-        if (!this.isDashing) { this.trail.push({x: this.x, y: this.y}); if (this.trail.length > this.maxTrail) this.trail.shift(); }
-        if (this.isDashing) { this.dashTimer--; this.x += CONFIG.player.dashSpeed * this.dashDirection; if (this.dashTimer <= 0) { this.isDashing = false; this.velY = 0; } return; }
+        if (!this.isDashing) {
+            this.trail.push({x: this.x, y: this.y});
+            if (this.trail.length > this.maxTrail) this.trail.shift();
+        }
+        
+        if (this.isDashing) {
+            this.dashTimer--;
+            this.x += CONFIG.player.dashSpeed * this.dashDirection;
+            if (this.dashTimer <= 0) {
+                this.isDashing = false;
+                this.velY = 0;
+            }
+            return;
+        }
+        
         this.velY += this.gravity;
-        if (keys['ArrowLeft'] || keys['a'] || keys['ф']) { this.velX = -this.speed; this.dashDirection = -1; }
-        else if (keys['ArrowRight'] || keys['d'] || keys['в']) { this.velX = this.speed; this.dashDirection = 1; }
-        else { this.velX *= this.friction; }
+        
+        if (keys['ArrowLeft'] || keys['a'] || keys['ф']) {
+            this.velX = -this.speed;
+            this.dashDirection = -1;
+        } else if (keys['ArrowRight'] || keys['d'] || keys['в']) {
+            this.velX = this.speed;
+            this.dashDirection = 1;
+        } else {
+            this.velX *= this.friction;
+        }
+        
         if ((keys[' '] || keys['ArrowUp'] || keys['w'] || keys['ц']) && this.jumpCount < 2) {
             if (!this.jumping || CONFIG.player.doubleJump) {
-                this.velY = -this.jumpPower; this.jumping = true; this.jumpCount++; this.createJumpParticles(); AudioSys.jump();
-                keys[' '] = false; keys['ArrowUp'] = false; keys['w'] = false; keys['ц'] = false;
+                this.velY = -this.jumpPower;
+                this.jumping = true;
+                this.jumpCount++;
+                this.createJumpParticles();
+                AudioSys.jump();
+                keys[' '] = false;
+                keys['ArrowUp'] = false;
+                keys['w'] = false;
+                keys['ц'] = false;
             }
         }
-        if ((keys['Shift'] || keys['shift'] || keys['q'] || keys['й']) && this.dashCharges > 0 && this.dashCooldown <= 0) { this.startDash(); keys['Shift'] = false; keys['shift'] = false; keys['q'] = false; keys['й'] = false; }
-        this.x += this.velX; this.y += this.velY;
+        
+        if ((keys['Shift'] || keys['shift'] || keys['q'] || keys['й']) && this.dashCharges > 0 && this.dashCooldown <= 0) {
+            this.startDash();
+            keys['Shift'] = false;
+            keys['shift'] = false;
+            keys['q'] = false;
+            keys['й'] = false;
+        }
+        
+        this.x += this.velX;
+        this.y += this.velY;
+        
         this.x = Math.max(cameraX + 50, Math.min(this.x, cameraX + canvas.width - 50 - this.width));
-        if (this.y > canvas.height + 200) { this.respawn(); return; }
+        
+        if (this.y > canvas.height + 200) {
+            this.respawn();
+            return;
+        }
+        
         this.checkPlatformCollisions();
     }
+    
     startDash() {
-        this.isDashing = true; this.dashTimer = CONFIG.player.dashDuration; this.dashCharges--; this.dashCooldown = CONFIG.player.dashCooldown; this.invulnerable = 15; this.velY = 0; AudioSys.dash();
-        for (let i = 0; i < 20; i++) particlePool.acquire(this.x + this.width/2 + Math.random()*20 - 10, this.y + this.height/2 + Math.random()*20 - 10, '#FFDE7D');
+        this.isDashing = true;
+        this.dashTimer = CONFIG.player.dashDuration;
+        this.dashCharges--;
+        this.dashCooldown = CONFIG.player.dashCooldown;
+        this.invulnerable = 15;
+        this.velY = 0;
+        AudioSys.dash();
+        
+        for (let i = 0; i < 20; i++) {
+            particlePool.acquire(
+                this.x + this.width/2 + Math.random() * 20 - 10,
+                this.y + this.height/2 + Math.random() * 20 - 10,
+                '#FFDE7D'
+            );
+        }
         updateDashIndicator();
     }
+    
     meleeAttack() {
         if (this.meleeCooldown > 0 || !gameRunning) return;
+        
         this.meleeCooldown = CONFIG.melee.cooldownMax;
         this.swingEffect = 8;
         AudioSys.meleeSwing();
+        
         const centerX = this.x + this.width/2;
         const centerY = this.y + this.height/2;
         
@@ -782,48 +860,67 @@ class Player {
         }
         
         let hitSomething = false;
+        
         for (let i = 0; i < enemies.length; i++) {
             const e = enemies[i];
             if (!e.active) continue;
-            const enemyCenterX = e.x + e.width/2, enemyCenterY = e.y + e.height/2;
+            const enemyCenterX = e.x + e.width/2;
+            const enemyCenterY = e.y + e.height/2;
             const dist = Math.hypot(centerX - enemyCenterX, centerY - enemyCenterY);
             if (dist < CONFIG.melee.radius) {
-                if (e.takeDamage()) { enemies = enemies.filter(x => x !== e); }
+                if (e.takeDamage()) {
+                    enemies = enemies.filter(x => x !== e);
+                }
                 hitSomething = true;
                 updateCombo();
                 this.createHitEffect(enemyCenterX, enemyCenterY);
             }
         }
+        
         for (let i = 0; i < flyingEnemies.length; i++) {
             const fe = flyingEnemies[i];
             if (!fe.active) continue;
-            const feCenterX = fe.x + fe.width/2, feCenterY = fe.y + fe.height/2;
+            const feCenterX = fe.x + fe.width/2;
+            const feCenterY = fe.y + fe.height/2;
             const dist = Math.hypot(centerX - feCenterX, centerY - feCenterY);
             if (dist < CONFIG.melee.radius) {
-                if (fe.takeDamage()) { flyingEnemies = flyingEnemies.filter(x => x !== fe); }
+                if (fe.takeDamage()) {
+                    flyingEnemies = flyingEnemies.filter(x => x !== fe);
+                }
                 hitSomething = true;
                 updateCombo();
                 this.createHitEffect(feCenterX, feCenterY);
             }
         }
+        
         if (boss && boss.active) {
-            const bossCenterX = boss.x + boss.width/2, bossCenterY = boss.y + boss.height/2;
+            const bossCenterX = boss.x + boss.width/2;
+            const bossCenterY = boss.y + boss.height/2;
             const dist = Math.hypot(centerX - bossCenterX, centerY - bossCenterY);
             if (dist < CONFIG.melee.radius + 15) {
-                if (boss.takeDamage()) { boss = null; document.getElementById('bossHealthBar').style.display = 'none'; }
+                if (boss.takeDamage()) {
+                    boss = null;
+                    document.getElementById('bossHealthBar').style.display = 'none';
+                }
                 hitSomething = true;
                 updateCombo();
                 this.createHitEffect(bossCenterX, bossCenterY);
                 AudioSys.bossHit();
             }
         }
+        
         if (hitSomething) {
-            for (let i = 0; i < 25; i++) particlePool.acquire(centerX + (Math.random() - 0.5)*40, centerY + (Math.random() - 0.5)*40, '#ffaa33');
+            for (let i = 0; i < 25; i++) {
+                particlePool.acquire(
+                    centerX + (Math.random() - 0.5) * 40,
+                    centerY + (Math.random() - 0.5) * 40,
+                    '#ffaa33'
+                );
+            }
             shakeScreen(3);
         }
         
         const skinData = getSkinData(equippedSkin);
-        // Частицы для скина Полгода Колблоксу
         if (skinData.festive && hitSomething) {
             for (let i = 0; i < 25; i++) {
                 safeTimeout(() => {
@@ -839,7 +936,7 @@ class Player {
                 }, i * 12);
             }
         }
-        // Частицы для скина Сикс Севен
+        
         if (skinData.id === 'sixseven' && hitSomething) {
             for (let i = 0; i < 12; i++) {
                 safeTimeout(() => {
@@ -854,47 +951,114 @@ class Player {
             }
         }
     }
-    createHitEffect(x, y) { for (let i = 0; i < 15; i++) particlePool.acquire(x + (Math.random() - 0.5)*20, y + (Math.random() - 0.5)*20, '#ff5500'); }
-    createJumpParticles() { for (let i = 0; i < 12; i++) particlePool.acquire(this.x + this.width/2, this.y + this.height, '#4af626'); }
-    createLandParticles() { for (let i = 0; i < 8; i++) particlePool.acquire(this.x + this.width/2, this.y + this.height, '#08D9D6'); }
+    
+    createHitEffect(x, y) {
+        for (let i = 0; i < 15; i++) {
+            particlePool.acquire(
+                x + (Math.random() - 0.5) * 20,
+                y + (Math.random() - 0.5) * 20,
+                '#ff5500'
+            );
+        }
+    }
+    
+    createJumpParticles() {
+        for (let i = 0; i < 12; i++) {
+            particlePool.acquire(this.x + this.width/2, this.y + this.height, '#4af626');
+        }
+    }
+    
+    createLandParticles() {
+        for (let i = 0; i < 8; i++) {
+            particlePool.acquire(this.x + this.width/2, this.y + this.height, '#08D9D6');
+        }
+    }
+    
     checkPlatformCollisions() {
         let onGround = false;
         for (let platform of platforms) {
             if (this.checkCollision(platform)) {
                 if (this.velY > 0 && this.y + this.height - this.velY <= platform.y + 10) {
-                    this.y = platform.y - this.height; this.velY = 0;
-                    if (this.jumping) { this.createLandParticles(); this.jumping = false; }
-                    this.jumpCount = 0; onGround = true;
+                    this.y = platform.y - this.height;
+                    this.velY = 0;
+                    if (this.jumping) {
+                        this.createLandParticles();
+                        this.jumping = false;
+                    }
+                    this.jumpCount = 0;
+                    onGround = true;
                     if (platform.type === 'breaking' && !platform.broken) platform.breakTimer = 60;
                 }
             }
         }
         if (onGround) this.jumpCount = 0;
     }
-    checkCollision(obj) { return this.x < obj.x + obj.width && this.x + this.width > obj.x && this.y < obj.y + obj.height && this.y + this.height > obj.y; }
+    
+    checkCollision(obj) {
+        return this.x < obj.x + obj.width &&
+               this.x + this.width > obj.x &&
+               this.y < obj.y + obj.height &&
+               this.y + this.height > obj.y;
+    }
+    
     takeDamage(amount, knockbackX, knockbackY, color) {
         if (this.invulnerable > 0 || this.isDashing) return false;
-        playerHealth = Math.max(0, playerHealth - amount); updateHealthBar(); this.knockback(knockbackX, knockbackY);
-        this.invulnerable = 45; AudioSys.hit();
+        
+        playerHealth = Math.max(0, playerHealth - amount);
+        updateHealthBar();
+        this.knockback(knockbackX, knockbackY);
+        this.invulnerable = 45;
+        AudioSys.hit();
         roundDamage += amount;
-        for (let i = 0; i < 15; i++) particlePool.acquire(this.x + this.width/2, this.y + this.height/2, color || '#ff2e63');
-        if (playerHealth <= 0) { gameOver(); return true; } return false;
+        
+        for (let i = 0; i < 15; i++) {
+            particlePool.acquire(this.x + this.width/2, this.y + this.height/2, color || '#ff2e63');
+        }
+        
+        if (playerHealth <= 0) {
+            gameOver();
+            return true;
+        }
+        return false;
     }
-    knockback(x, y) { this.velX = x; this.velY = y; this.jumping = true; }
-    respawn() { this.takeDamage(30); this.x = this.lastCheckpoint.x; this.y = this.lastCheckpoint.y; this.velX = 0; this.velY = 0; this.jumping = false; this.jumpCount = 0; this.invulnerable = 90; for (let i = 0; i < 25; i++) particlePool.acquire(this.x + this.width/2, this.y + this.height/2, '#FF2E63'); shakeScreen(5); }
-    saveCheckpoint() { this.lastCheckpoint = { x: this.x, y: this.y }; showCheckpointIndicator(); AudioSys.checkpoint(); }
+    
+    knockback(x, y) {
+        this.velX = x;
+        this.velY = y;
+        this.jumping = true;
+    }
+    
+    respawn() {
+        this.takeDamage(30);
+        this.x = this.lastCheckpoint.x;
+        this.y = this.lastCheckpoint.y;
+        this.velX = 0;
+        this.velY = 0;
+        this.jumping = false;
+        this.jumpCount = 0;
+        this.invulnerable = 90;
+        
+        for (let i = 0; i < 25; i++) {
+            particlePool.acquire(this.x + this.width/2, this.y + this.height/2, '#FF2E63');
+        }
+        shakeScreen(5);
+    }
+    
+    saveCheckpoint() {
+        this.lastCheckpoint = { x: this.x, y: this.y };
+        showCheckpointIndicator();
+        AudioSys.checkpoint();
+    }
     
     drawShape(ctx, x, y, w, h, skin) {
         let useDarkEdges = false;
-        // Чёрный призрак - тёмно-серые грани при получении урона или использовании ауры (как в прошлой версии)
         if (skin.id === 'blackghost') {
             useDarkEdges = (this.invulnerable > 0 || this.swingEffect > 0 || equippedAura !== null);
         }
         
         const mainColor = skin.color;
-        const edgeColor = useDarkEdges ? '#444444' : mainColor;
         
-        // Конус (треугольник без вращения)
+        // Конус (треугольник)
         if (skin.shape === 'cone') {
             ctx.beginPath();
             ctx.moveTo(x + w/2, y);
@@ -903,7 +1067,7 @@ class Player {
             ctx.closePath();
             ctx.fillStyle = mainColor;
             ctx.fill();
-            // Обычное лицо как у всех
+            // Нормальные глаза 8x8 и рот 20x4
             ctx.fillStyle = '#222';
             ctx.fillRect(x + w/2 - 4, y + 10, 8, 8);
             ctx.fillRect(x + w/2 - 4, y + 22, 8, 8);
@@ -911,25 +1075,25 @@ class Player {
             return;
         }
         
-        // Сикс Севен (цифра 67 + нормальное лицо)
+        // Сикс Севен (цифра 67 + нормальные глаза и рот)
         if (skin.id === 'sixseven') {
             ctx.fillStyle = mainColor;
             ctx.fillRect(x, y, w, h);
-            // Цифра 67 на всю высоту, но не перекрывает глаза
+            // Цифра 67
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 28px monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('67', x + w/2, y + h/2 - 5);
-            // Нормальное лицо (глаза и рот как у всех)
+            // Нормальные глаза 8x8 и рот 20x4
             ctx.fillStyle = '#222';
-            ctx.fillRect(x + 10, y + 10, 6, 6);
-            ctx.fillRect(x + 24, y + 10, 6, 6);
-            ctx.fillRect(x + 12, y + 28, 16, 3);
+            ctx.fillRect(x + 10, y + 10, 8, 8);
+            ctx.fillRect(x + 22, y + 10, 8, 8);
+            ctx.fillRect(x + 10, y + 25, 20, 4);
             return;
         }
         
-        // Полгода Колблоксу (праздничный скин с нормальным лицом и деталями)
+        // Полгода Колблоксу (праздничный скин)
         if (skin.id === 'halfyear') {
             ctx.fillStyle = mainColor;
             ctx.fillRect(x, y, w, h);
@@ -946,17 +1110,14 @@ class Player {
             ctx.fillStyle = '#66ccff';
             ctx.fillRect(x + 31, y + 32, 4, 4);
             
-            // Нормальные глаза
+            // Нормальные глаза 8x8
             ctx.fillStyle = '#222';
-            ctx.fillRect(x + 10, y + 10, 6, 6);
-            ctx.fillRect(x + 24, y + 10, 6, 6);
-            ctx.fillStyle = '#fff';
-            ctx.fillRect(x + 12, y + 12, 2, 2);
-            ctx.fillRect(x + 26, y + 12, 2, 2);
+            ctx.fillRect(x + 10, y + 10, 8, 8);
+            ctx.fillRect(x + 22, y + 10, 8, 8);
             
-            // Рот (улыбка)
+            // Рот 20x4
             ctx.fillStyle = '#222';
-            ctx.fillRect(x + 12, y + 28, 16, 3);
+            ctx.fillRect(x + 10, y + 25, 20, 4);
             
             // Праздничная надпись
             ctx.fillStyle = '#ff3366';
@@ -986,7 +1147,7 @@ class Player {
         if (skin.id === 'blackghost') {
             ctx.fillStyle = mainColor;
             ctx.fillRect(x, y, w, h);
-            // Тёмно-серые грани при получении урона
+            
             if (useDarkEdges) {
                 ctx.fillStyle = '#444444';
                 ctx.fillRect(x, y, w, 3);
@@ -994,68 +1155,73 @@ class Player {
                 ctx.fillRect(x, y, 3, h);
                 ctx.fillRect(x + w - 3, y, 3, h);
             }
-            // Глаза (белые, как у призрака)
+            
+            // Глаза 8x8 (белые)
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(x + 10, y + 10, 8, 8);
             ctx.fillRect(x + 22, y + 10, 8, 8);
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(x + 12, y + 12, 4, 4);
-            ctx.fillRect(x + 24, y + 12, 4, 4);
-            // Рот
+            // Рот 20x4 (белый)
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(x + 10, y + 25, 20, 4);
             return;
         }
         
-        // Обычный квадрат (для всех остальных скинов)
-        ctx.fillStyle = mainColor;
-        ctx.fillRect(x, y, w, h);
+        // Калейдоскоп (меняет цвет)
+        if (skin.id === 'kaleidoscope') {
+            ctx.fillStyle = getKaleidoscopeColor();
+            ctx.fillRect(x, y, w, h);
+        } else {
+            // Обычный квадрат
+            ctx.fillStyle = mainColor;
+            ctx.fillRect(x, y, w, h);
+        }
         
-        // Глаза и рот
+        // Глаза 8x8 и рот 20x4 для всех остальных скинов
         ctx.fillStyle = '#222';
         ctx.fillRect(x + 10, y + 10, 8, 8);
         ctx.fillRect(x + 22, y + 10, 8, 8);
-        ctx.fillStyle = '#222';
         ctx.fillRect(x + 10, y + 25, 20, 4);
-        
-        // Белые блики в глазах
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(x + 12, y + 12, 3, 3);
-        ctx.fillRect(x + 24, y + 12, 3, 3);
     }
     
     draw(ctx, cameraX) {
         const skin = getSkinData(equippedSkin);
         const drawX = this.x - cameraX;
         
-        for (let i = 0; i < this.trail.length; i++) { 
-            ctx.globalAlpha = i / this.trail.length * 0.25; 
+        // Отрисовка следа
+        for (let i = 0; i < this.trail.length; i++) {
+            ctx.globalAlpha = i / this.trail.length * 0.25;
             this.drawShape(ctx, this.trail[i].x - cameraX, this.trail[i].y, this.width, this.height, skin);
         }
         ctx.globalAlpha = 1;
         
-        if (this.isDashing) { 
-            ctx.shadowColor = skin.color; 
-            ctx.shadowBlur = 20; 
+        // Отрисовка самого игрока
+        if (this.isDashing) {
+            ctx.shadowColor = skin.color;
+            ctx.shadowBlur = 20;
             this.drawShape(ctx, drawX, this.y, this.width, this.height, skin);
-            ctx.shadowBlur = 0; 
-        } else { 
+            ctx.shadowBlur = 0;
+        } else {
             this.drawShape(ctx, drawX, this.y, this.width, this.height, skin);
         }
         
+        // Эффект атаки
         if (this.swingEffect > 0) {
-            ctx.beginPath(); ctx.arc(drawX + this.width/2, this.y + this.height/2, CONFIG.melee.radius, 0, Math.PI * 2);
+            ctx.beginPath();
+            ctx.arc(drawX + this.width/2, this.y + this.height/2, CONFIG.melee.radius, 0, Math.PI * 2);
             ctx.fillStyle = `rgba(255, 80, 40, ${0.3 * (this.swingEffect / 8)})`;
             ctx.fill();
-            ctx.beginPath(); ctx.arc(drawX + this.width/2, this.y + this.height/2, CONFIG.melee.radius - 10, 0, Math.PI * 2);
+            ctx.beginPath();
+            ctx.arc(drawX + this.width/2, this.y + this.height/2, CONFIG.melee.radius - 10, 0, Math.PI * 2);
             ctx.fillStyle = `rgba(255, 200, 0, 0.5)`;
             ctx.fill();
         }
-        if (this.jumpCount === 1 && !this.jumping) { 
-            ctx.fillStyle = 'rgba(8, 217, 214, 0.7)'; 
-            ctx.beginPath(); 
-            ctx.arc(drawX + this.width/2, this.y - 8, 5, 0, Math.PI*2); 
-            ctx.fill(); 
+        
+        // Индикатор двойного прыжка
+        if (this.jumpCount === 1 && !this.jumping) {
+            ctx.fillStyle = 'rgba(8, 217, 214, 0.7)';
+            ctx.beginPath();
+            ctx.arc(drawX + this.width/2, this.y - 8, 5, 0, Math.PI * 2);
+            ctx.fill();
         }
     }
 }
