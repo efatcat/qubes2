@@ -86,7 +86,18 @@ let activeTimeouts = [];
 let currentBiom = null;
 let biomImages = [];
 let biomLoaded = false;
-let biomList = [];
+
+const BUILTIN_BIOMS = [
+    { type: 'gradient', colors: ['#0a0a1a', '#1a1a2e'], name: 'Тёмный лес' },
+    { type: 'gradient', colors: ['#0a1a0a', '#1a2e1a'], name: 'Зелёная чаща' },
+    { type: 'gradient', colors: ['#1a0a0a', '#2e1a1a'], name: 'Кровавая луна' },
+    { type: 'gradient', colors: ['#0a0a3a', '#1a1a4e'], name: 'Синяя бездна' },
+    { type: 'gradient', colors: ['#3a0a0a', '#4e1a1a'], name: 'Огненная земля' },
+    { type: 'gradient', colors: ['#0a3a0a', '#1a4e1a'], name: 'Изумрудный лес' },
+    { type: 'gradient', colors: ['#2a0a2a', '#3a1a3a'], name: 'Фиолетовый туман' },
+    { type: 'gradient', colors: ['#3a2a0a', '#4e3a1a'], name: 'Золотая пустошь' },
+    { type: 'gradient', colors: ['#0a2a3a', '#1a3a4e'], name: 'Ледяная пещера' }
+];
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -147,77 +158,44 @@ function getKaleidoscopeColor() {
 // ==================== СИСТЕМА БИОМОВ ====================
 async function loadBioms() {
     return new Promise((resolve) => {
-        const possibleBioms = [
-            'biom1.jpg', 'biom2.jpg', 'biom3.jpg', 'biom4.jpg', 'biom5.jpg',
-            'biom6.png', 'biom7.png', 'biom8.png', 'biom9.png', 'biom10.png',
-            'forest.jpg', 'cave.jpg', 'mountain.jpg', 'volcano.jpg', 'ice.jpg',
-            'swamp.jpg', 'desert_alt.jpg', 'jungle.jpg', 'ruins.jpg', 'temple.jpg'
-        ];
+        const possibleFiles = [];
+        for (let i = 1; i <= 20; i++) {
+            possibleFiles.push(`bioms/biom${i}.png`);
+            possibleFiles.push(`bioms/biom${i}.jpg`);
+        }
+        const namedFiles = ['forest', 'cave', 'mountain', 'volcano', 'ice', 'swamp', 'jungle', 'ruins', 'temple', 'waterfall', 'cliffs', 'valley', 'desert', 'snow', 'lava', 'abyss', 'sky', 'ocean'];
+        for (const name of namedFiles) {
+            possibleFiles.push(`bioms/${name}.png`);
+            possibleFiles.push(`bioms/${name}.jpg`);
+        }
         
         let loadedCount = 0;
-        let totalToLoad = 0;
+        let totalToLoad = possibleFiles.length;
+        let hasAnyLoaded = false;
         
-        fetch('bioms/list.json')
-            .then(response => response.json())
-            .then(data => {
-                biomList = data.bioms || [];
-                totalToLoad = biomList.length;
-                
-                if (totalToLoad === 0) {
-                    biomLoaded = true;
-                    selectRandomBiom();
-                    resolve();
-                    return;
-                }
-                
-                biomList.forEach((biomFile, index) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        biomImages[index] = img;
-                        loadedCount++;
-                        if (loadedCount === totalToLoad) {
-                            biomLoaded = true;
-                            selectRandomBiom();
-                            resolve();
-                        }
-                    };
-                    img.onerror = () => {
-                        loadedCount++;
-                        if (loadedCount === totalToLoad) {
-                            biomLoaded = true;
-                            selectRandomBiom();
-                            resolve();
-                        }
-                    };
-                    img.src = `bioms/${biomFile}`;
-                });
-            })
-            .catch(() => {
-                biomList = possibleBioms;
-                totalToLoad = biomList.length;
-                
-                biomList.forEach((biomFile, index) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        biomImages[index] = img;
-                        loadedCount++;
-                        if (loadedCount === totalToLoad) {
-                            biomLoaded = true;
-                            selectRandomBiom();
-                            resolve();
-                        }
-                    };
-                    img.onerror = () => {
-                        loadedCount++;
-                        if (loadedCount === totalToLoad) {
-                            biomLoaded = true;
-                            selectRandomBiom();
-                            resolve();
-                        }
-                    };
-                    img.src = `bioms/${biomFile}`;
-                });
-            });
+        function checkComplete() {
+            loadedCount++;
+            if (loadedCount >= totalToLoad) {
+                if (!hasAnyLoaded) console.log('Биомы не найдены, используем встроенные градиенты');
+                biomLoaded = true;
+                selectRandomBiom();
+                resolve();
+            }
+        }
+        
+        possibleFiles.forEach((file, index) => {
+            const img = new Image();
+            img.onload = () => {
+                biomImages[index] = img;
+                hasAnyLoaded = true;
+                checkComplete();
+            };
+            img.onerror = () => {
+                biomImages[index] = null;
+                checkComplete();
+            };
+            img.src = file;
+        });
         
         setTimeout(() => {
             if (!biomLoaded) {
@@ -225,31 +203,29 @@ async function loadBioms() {
                 selectRandomBiom();
                 resolve();
             }
-        }, 3000);
+        }, 5000);
     });
 }
 
 function selectRandomBiom() {
-    if (biomImages.length > 0) {
-        const validImages = biomImages.filter(img => img && img.complete && img.naturalWidth > 0);
-        if (validImages.length > 0) {
-            const randomIndex = Math.floor(Math.random() * validImages.length);
-            currentBiom = validImages[randomIndex];
-        } else {
-            currentBiom = null;
-        }
+    const validImages = biomImages.filter(img => img !== null && img.complete && img.naturalWidth > 0);
+    if (validImages.length > 0) {
+        const randomIndex = Math.floor(Math.random() * validImages.length);
+        currentBiom = validImages[randomIndex];
     } else {
-        currentBiom = null;
+        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
+        currentBiom = randomBiom;
     }
 }
 
 function changeBiom() {
-    if (biomLoaded && biomImages.length > 0) {
-        const validImages = biomImages.filter(img => img && img.complete && img.naturalWidth > 0);
-        if (validImages.length > 0) {
-            const randomIndex = Math.floor(Math.random() * validImages.length);
-            currentBiom = validImages[randomIndex];
-        }
+    const validImages = biomImages.filter(img => img !== null && img.complete && img.naturalWidth > 0);
+    if (validImages.length > 0) {
+        const randomIndex = Math.floor(Math.random() * validImages.length);
+        currentBiom = validImages[randomIndex];
+    } else {
+        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
+        currentBiom = randomBiom;
     }
 }
 
@@ -1757,13 +1733,15 @@ function checkCheckpoints(){if(player.x>lastCheckpointX+800){lastCheckpointX=pla
 
 // ==================== ОТРИСОВКА ====================
 function drawBackground() {
-    if (currentBiom && currentBiom.complete && currentBiom.naturalWidth > 0) {
+    if (currentBiom && currentBiom.tagName === 'IMG' && currentBiom.complete && currentBiom.naturalWidth > 0) {
         const imgWidth = currentBiom.width;
         const imgHeight = currentBiom.height;
         const canvasWidth = canvas.width;
         const canvasHeight = canvas.height;
         
-        const scale = Math.max(canvasWidth / imgWidth, canvasHeight / imgHeight);
+        const scaleX = canvasWidth / imgWidth;
+        const scaleY = canvasHeight / imgHeight;
+        const scale = Math.max(scaleX, scaleY);
         const scaledWidth = imgWidth * scale;
         const scaledHeight = imgHeight * scale;
         const x = (canvasWidth - scaledWidth) / 2;
@@ -1772,14 +1750,24 @@ function drawBackground() {
         ctx.drawImage(currentBiom, x, y, scaledWidth, scaledHeight);
         
         const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-        gradient.addColorStop(0, 'rgba(0, 0, 0, 0.3)');
-        gradient.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+        gradient.addColorStop(0, 'rgba(0, 0, 0, 0.4)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0.6)');
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    }
+    else if (currentBiom && currentBiom.type === 'gradient') {
+        const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        grad.addColorStop(0, currentBiom.colors[0]);
+        grad.addColorStop(1, currentBiom.colors[1]);
+        ctx.fillStyle = grad;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-    } else {
+        
+        ctx.fillStyle = 'rgba(255,255,255,0.03)';
+        for (let i = 0; i < 200; i++) {
+            ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 2, 2);
+        }
+    }
+    else {
         const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
         grad.addColorStop(0, '#0a0a1a');
         grad.addColorStop(1, '#000000');
