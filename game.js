@@ -1,4 +1,4 @@
-// game.js - QUBES FULL VERSION
+// game.js - QUBES FULL VERSION WITH BIOMS
 const CONFIG = {
     player: { width: 40, height: 40, speed: 6, jumpPower: 16, gravity: 0.8, friction: 0.85, dashSpeed: 20, dashDuration: 12, dashCooldown: 45, maxDashes: 2, doubleJump: true },
     melee: { radius: 95, cooldownMax: 18, damage: 1 },
@@ -12,7 +12,7 @@ const CONFIG = {
     combat: { comboDecay: 180 }
 };
 
-// СКИНЫ (Медный рыцарь переименован в Колхозный Козёл)
+// СКИНЫ
 const CHEST_SKINS = [
     { id: 'copper', name: 'Колхозный Козёл', color: '#B87333', chance: 40 },
     { id: 'sapphire', name: 'Сапфировый страж', color: '#0f52ba', chance: 25 },
@@ -82,6 +82,12 @@ let activeAuraEffect = null;
 let gameLoopId = null;
 let activeTimeouts = [];
 
+// БИОМЫ
+let currentBiom = null;
+let biomImages = [];
+let biomLoaded = false;
+let biomList = [];
+
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
@@ -136,6 +142,115 @@ function getKaleidoscopeColor() {
         lastKaleidoscopeColor = saved || '#ff00ff';
     }
     return lastKaleidoscopeColor;
+}
+
+// ==================== СИСТЕМА БИОМОВ ====================
+async function loadBioms() {
+    return new Promise((resolve) => {
+        const possibleBioms = [
+            'biom1.jpg', 'biom2.jpg', 'biom3.jpg', 'biom4.jpg', 'biom5.jpg',
+            'biom6.png', 'biom7.png', 'biom8.png', 'biom9.png', 'biom10.png',
+            'forest.jpg', 'cave.jpg', 'mountain.jpg', 'volcano.jpg', 'ice.jpg',
+            'swamp.jpg', 'desert_alt.jpg', 'jungle.jpg', 'ruins.jpg', 'temple.jpg'
+        ];
+        
+        let loadedCount = 0;
+        let totalToLoad = 0;
+        
+        fetch('bioms/list.json')
+            .then(response => response.json())
+            .then(data => {
+                biomList = data.bioms || [];
+                totalToLoad = biomList.length;
+                
+                if (totalToLoad === 0) {
+                    biomLoaded = true;
+                    selectRandomBiom();
+                    resolve();
+                    return;
+                }
+                
+                biomList.forEach((biomFile, index) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        biomImages[index] = img;
+                        loadedCount++;
+                        if (loadedCount === totalToLoad) {
+                            biomLoaded = true;
+                            selectRandomBiom();
+                            resolve();
+                        }
+                    };
+                    img.onerror = () => {
+                        loadedCount++;
+                        if (loadedCount === totalToLoad) {
+                            biomLoaded = true;
+                            selectRandomBiom();
+                            resolve();
+                        }
+                    };
+                    img.src = `bioms/${biomFile}`;
+                });
+            })
+            .catch(() => {
+                biomList = possibleBioms;
+                totalToLoad = biomList.length;
+                
+                biomList.forEach((biomFile, index) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        biomImages[index] = img;
+                        loadedCount++;
+                        if (loadedCount === totalToLoad) {
+                            biomLoaded = true;
+                            selectRandomBiom();
+                            resolve();
+                        }
+                    };
+                    img.onerror = () => {
+                        loadedCount++;
+                        if (loadedCount === totalToLoad) {
+                            biomLoaded = true;
+                            selectRandomBiom();
+                            resolve();
+                        }
+                    };
+                    img.src = `bioms/${biomFile}`;
+                });
+            });
+        
+        setTimeout(() => {
+            if (!biomLoaded) {
+                biomLoaded = true;
+                selectRandomBiom();
+                resolve();
+            }
+        }, 3000);
+    });
+}
+
+function selectRandomBiom() {
+    if (biomImages.length > 0) {
+        const validImages = biomImages.filter(img => img && img.complete && img.naturalWidth > 0);
+        if (validImages.length > 0) {
+            const randomIndex = Math.floor(Math.random() * validImages.length);
+            currentBiom = validImages[randomIndex];
+        } else {
+            currentBiom = null;
+        }
+    } else {
+        currentBiom = null;
+    }
+}
+
+function changeBiom() {
+    if (biomLoaded && biomImages.length > 0) {
+        const validImages = biomImages.filter(img => img && img.complete && img.naturalWidth > 0);
+        if (validImages.length > 0) {
+            const randomIndex = Math.floor(Math.random() * validImages.length);
+            currentBiom = validImages[randomIndex];
+        }
+    }
 }
 
 // ==================== АУДИО ====================
@@ -1058,7 +1173,6 @@ class Player {
         
         const mainColor = skin.color;
         
-        // Конус (треугольник)
         if (skin.shape === 'cone') {
             ctx.beginPath();
             ctx.moveTo(x + w/2, y);
@@ -1067,7 +1181,6 @@ class Player {
             ctx.closePath();
             ctx.fillStyle = mainColor;
             ctx.fill();
-            // Нормальные глаза 8x8 и рот 20x4
             ctx.fillStyle = '#222';
             ctx.fillRect(x + w/2 - 4, y + 10, 8, 8);
             ctx.fillRect(x + w/2 - 4, y + 22, 8, 8);
@@ -1075,17 +1188,14 @@ class Player {
             return;
         }
         
-        // Сикс Севен (цифра 67 + нормальные глаза и рот)
         if (skin.id === 'sixseven') {
             ctx.fillStyle = mainColor;
             ctx.fillRect(x, y, w, h);
-            // Цифра 67
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 28px monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('67', x + w/2, y + h/2 - 5);
-            // Нормальные глаза 8x8 и рот 20x4
             ctx.fillStyle = '#222';
             ctx.fillRect(x + 10, y + 10, 8, 8);
             ctx.fillRect(x + 22, y + 10, 8, 8);
@@ -1093,12 +1203,10 @@ class Player {
             return;
         }
         
-        // Полгода Колблоксу (праздничный скин)
         if (skin.id === 'halfyear') {
             ctx.fillStyle = mainColor;
             ctx.fillRect(x, y, w, h);
             
-            // Праздничный узор (конфетти)
             ctx.fillStyle = '#ff3366';
             ctx.fillRect(x + 5, y + 5, 4, 4);
             ctx.fillStyle = '#33ff66';
@@ -1110,16 +1218,11 @@ class Player {
             ctx.fillStyle = '#66ccff';
             ctx.fillRect(x + 31, y + 32, 4, 4);
             
-            // Нормальные глаза 8x8
             ctx.fillStyle = '#222';
             ctx.fillRect(x + 10, y + 10, 8, 8);
             ctx.fillRect(x + 22, y + 10, 8, 8);
-            
-            // Рот 20x4
-            ctx.fillStyle = '#222';
             ctx.fillRect(x + 10, y + 25, 20, 4);
             
-            // Праздничная надпись
             ctx.fillStyle = '#ff3366';
             ctx.font = 'bold 7px monospace';
             ctx.textAlign = 'center';
@@ -1128,7 +1231,6 @@ class Player {
             ctx.font = 'bold 6px monospace';
             ctx.fillText('6 МЕСЯЦЕВ', x + w/2, y + 36);
             
-            // Ленточки по бокам
             ctx.beginPath();
             ctx.moveTo(x, y + 15);
             ctx.lineTo(x - 3, y + 20);
@@ -1143,7 +1245,6 @@ class Player {
             return;
         }
         
-        // Чёрный призрак (светлые глаза, тёмные грани при уроне)
         if (skin.id === 'blackghost') {
             ctx.fillStyle = mainColor;
             ctx.fillRect(x, y, w, h);
@@ -1156,27 +1257,22 @@ class Player {
                 ctx.fillRect(x + w - 3, y, 3, h);
             }
             
-            // Глаза 8x8 (белые)
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(x + 10, y + 10, 8, 8);
             ctx.fillRect(x + 22, y + 10, 8, 8);
-            // Рот 20x4 (белый)
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(x + 10, y + 25, 20, 4);
             return;
         }
         
-        // Калейдоскоп (меняет цвет)
         if (skin.id === 'kaleidoscope') {
             ctx.fillStyle = getKaleidoscopeColor();
             ctx.fillRect(x, y, w, h);
         } else {
-            // Обычный квадрат
             ctx.fillStyle = mainColor;
             ctx.fillRect(x, y, w, h);
         }
         
-        // Глаза 8x8 и рот 20x4 для всех остальных скинов
         ctx.fillStyle = '#222';
         ctx.fillRect(x + 10, y + 10, 8, 8);
         ctx.fillRect(x + 22, y + 10, 8, 8);
@@ -1187,14 +1283,12 @@ class Player {
         const skin = getSkinData(equippedSkin);
         const drawX = this.x - cameraX;
         
-        // Отрисовка следа
         for (let i = 0; i < this.trail.length; i++) {
             ctx.globalAlpha = i / this.trail.length * 0.25;
             this.drawShape(ctx, this.trail[i].x - cameraX, this.trail[i].y, this.width, this.height, skin);
         }
         ctx.globalAlpha = 1;
         
-        // Отрисовка самого игрока
         if (this.isDashing) {
             ctx.shadowColor = skin.color;
             ctx.shadowBlur = 20;
@@ -1204,7 +1298,6 @@ class Player {
             this.drawShape(ctx, drawX, this.y, this.width, this.height, skin);
         }
         
-        // Эффект атаки
         if (this.swingEffect > 0) {
             ctx.beginPath();
             ctx.arc(drawX + this.width/2, this.y + this.height/2, CONFIG.melee.radius, 0, Math.PI * 2);
@@ -1216,7 +1309,6 @@ class Player {
             ctx.fill();
         }
         
-        // Индикатор двойного прыжка
         if (this.jumpCount === 1 && !this.jumping) {
             ctx.fillStyle = 'rgba(8, 217, 214, 0.7)';
             ctx.beginPath();
@@ -1664,7 +1756,50 @@ function checkEnemyCollisions(){for(let e of enemies){if(e.active&&player.checkC
 function checkCheckpoints(){if(player.x>lastCheckpointX+800){lastCheckpointX=player.x;player.saveCheckpoint();}}
 
 // ==================== ОТРИСОВКА ====================
-function drawBackground(){const grad=ctx.createLinearGradient(0,0,0,canvas.height);grad.addColorStop(0,'#0a0a1a');grad.addColorStop(1,'#000000');ctx.fillStyle=grad;ctx.fillRect(0,0,canvas.width,canvas.height);for(let layer=0;layer<3;layer++){const spd=0.05+layer*0.1,alpha=0.1+layer*0.15,size=1+layer*0.5;ctx.fillStyle=`rgba(255,255,255,${alpha})`;for(let i=0;i<40;i++){const x=(i*67+cameraX*spd)%canvas.width;const y=(i*41+layer*100)%canvas.height;ctx.fillRect(x,y,size,size);}}}
+function drawBackground() {
+    if (currentBiom && currentBiom.complete && currentBiom.naturalWidth > 0) {
+        const imgWidth = currentBiom.width;
+        const imgHeight = currentBiom.height;
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+        
+        const scale = Math.max(canvasWidth / imgWidth, canvasHeight / imgHeight);
+        const scaledWidth = imgWidth * scale;
+        const scaledHeight = imgHeight * scale;
+        const x = (canvasWidth - scaledWidth) / 2;
+        const y = (canvasHeight - scaledHeight) / 2;
+        
+        ctx.drawImage(currentBiom, x, y, scaledWidth, scaledHeight);
+        
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, 'rgba(0, 0, 0, 0.3)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+        const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        grad.addColorStop(0, '#0a0a1a');
+        grad.addColorStop(1, '#000000');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        for (let layer = 0; layer < 3; layer++) {
+            const spd = 0.05 + layer * 0.1;
+            const alpha = 0.1 + layer * 0.15;
+            const size = 1 + layer * 0.5;
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            for (let i = 0; i < 40; i++) {
+                const x = (i * 67 + cameraX * spd) % canvas.width;
+                const y = (i * 41 + layer * 100) % canvas.height;
+                ctx.fillRect(x, y, size, size);
+            }
+        }
+    }
+}
+
 function drawGoal(){const gx=levelWidth-cameraX;if(gx<canvas.width+100&&gx>-100){const grad=ctx.createRadialGradient(gx,canvas.height/2,10,gx,canvas.height/2,180);grad.addColorStop(0,'#4af626aa');grad.addColorStop(1,'#4af62600');ctx.fillStyle=grad;ctx.fillRect(gx-180,0,360,canvas.height);ctx.strokeStyle='#4af626';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,canvas.height);ctx.stroke();const pulse=Math.sin(Date.now()/250)*0.4+0.6;ctx.fillStyle=`rgba(74,246,38,${pulse})`;ctx.font='bold 26px monospace';ctx.textAlign='center';ctx.fillText('🏁 ФИНИШ',gx,canvas.height-45);}}
 function drawParticles(){if(!CONFIG.particles.enabled)return;for(let p of particlePool.activeObjects){p.update();p.draw(ctx,cameraX);if(!p.active)particlePool.release(p);}}
 function drawCoins(){for(const c of coins){ctx.fillStyle=c.color;ctx.beginPath();ctx.arc(c.x-cameraX,c.y,c.size,0,Math.PI*2);ctx.fill();ctx.fillStyle='#FFFFFF88';ctx.beginPath();ctx.arc(c.x-cameraX-3,c.y-3,c.size/3,0,Math.PI*2);ctx.fill();}}
@@ -1721,6 +1856,9 @@ function completeLevel(){
     gameRunning=false;
     if(gameLoopId) cancelAnimationFrame(gameLoopId);
     AudioSys.levelComplete();
+    
+    changeBiom();
+    
     addScore(1000*currentLevel);
     const eloResult = calculateEloChange();
     const ls = document.getElementById('levelScore');
@@ -1887,6 +2025,7 @@ async function initGame(){
     resizeCanvas();
     AudioSys.init();
     await bossTextures.load();
+    await loadBioms();
     loadAuraImages();
     particlePool = new ObjectPool((x,y,c) => new Particle(x,y,c), CONFIG.particles.maxCount);
     let progress = 0;
