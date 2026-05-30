@@ -1,4 +1,4 @@
-// game.js - QUBES FULL VERSION (Асинхронные биомы + Вихрь и Бомж)
+// game.js - QUBES FULL VERSION (ИСПРАВЛЕННАЯ СКОРОСТЬ + ВИХРИ ЗАТЯГИВАЮТ)
 const CONFIG = {
     player: { width: 40, height: 40, speed: 6, jumpPower: 16, gravity: 0.8, friction: 0.85, dashSpeed: 20, dashDuration: 12, dashCooldown: 45, maxDashes: 2, doubleJump: true },
     melee: { radius: 95, cooldownMax: 18, damage: 1 },
@@ -14,7 +14,7 @@ const CONFIG = {
 
 // СКИНЫ
 const CHEST_SKINS = [
-    { id: 'copper', name: 'Совхозный Козёл', color: '#B87333', chance: 40 },
+    { id: 'copper', name: 'Колхозный Козёл', color: '#B87333', chance: 40 },
     { id: 'sapphire', name: 'Сапфировый страж', color: '#0f52ba', chance: 25 },
     { id: 'magma', name: 'Магмовый голем', color: '#FF4500', chance: 15 },
     { id: 'royal', name: 'Королевский легион', color: '#FFD700', chance: 10 },
@@ -50,7 +50,7 @@ const SPRING_SKINS = [
     { id: 'rose_aura', name: 'Розовая аура', chance: 15, isAura: true },
     { id: 'spring_aura', name: 'Весенняя аура', chance: 10, isAura: true },
     { id: 'sapphire', name: 'Сапфировый страж', chance: 5, isAura: false, skinId: 'sapphire' },
-    { id: 'copper', name: 'Совхозный Козёл', chance: 5, isAura: false, skinId: 'copper' }
+    { id: 'copper', name: 'Колхозный Козёл', chance: 5, isAura: false, skinId: 'copper' }
 ];
 
 // ELITE КЕЙС
@@ -292,7 +292,7 @@ function changeBiom() {
     }
 }
 
-// ==================== ВРАГ ВИХРЬ (летает, притягивает игрока) ====================
+// ==================== ВРАГ ВИХРЬ (ЗАТЯГИВАЕТ ИГРОКА, ЛЕТАЕТ) ====================
 class WhirlwindEnemy {
     constructor(x, y) {
         this.x = x;
@@ -301,66 +301,45 @@ class WhirlwindEnemy {
         this.width = 45;
         this.height = 45;
         this.color = '#00aaff';
-        this.speed = 1.2;
+        this.speed = 0.8;  // Медленнее
         this.direction = Math.random() > 0.5 ? 1 : -1;
         this.health = 8;
         this.maxHealth = 8;
         this.active = true;
-        this.suckStrength = 2.8;
+        this.suckStrength = 1.8;  // Меньше, чтобы не улетал слишком быстро
         this.rotation = 0;
         this.floatPhase = Math.random() * Math.PI * 2;
         this.floatAmplitude = 25;
-        this.floatSpeed = 0.05;
-        this.chargeCooldown = 0;
-        this.isCharging = false;
+        this.floatSpeed = 0.04;
     }
     
     update() {
         if (!this.active || !player) return;
         
-        this.rotation += 0.1;
+        this.rotation += 0.08;
         this.floatPhase += this.floatSpeed;
         
         // Парение в воздухе
         this.y = this.originalY + Math.sin(this.floatPhase) * this.floatAmplitude;
         
-        // Движение в стороны
+        // Медленное движение в стороны
         this.x += this.speed * this.direction;
-        if (this.x < cameraX - 100 || this.x > cameraX + canvas.width + 100) {
+        if (this.x < cameraX - 150 || this.x > cameraX + canvas.width + 150) {
             this.direction *= -1;
         }
         
-        // Заряд на игрока
-        if (!this.isCharging) {
-            this.chargeCooldown--;
-            if (this.chargeCooldown <= 0 && player) {
-                const dx = player.x - this.x;
-                const dy = player.y - this.y;
-                const dist = Math.hypot(dx, dy);
-                if (dist < 350) {
-                    this.isCharging = true;
-                    this.chargeDirection = dx > 0 ? 1 : -1;
-                    this.chargeCooldown = 120 + Math.random() * 60;
-                }
-            }
-        } else {
-            this.x += 7 * this.chargeDirection;
-            if (player) this.y += (player.y - this.y) * 0.1;
-            if (Math.abs(player.x - this.x) < 50 || this.x < cameraX - 100 || this.x > cameraX + canvas.width + 100) {
-                this.isCharging = false;
-            }
-        }
-        
-        // Притягивание игрока (даже когда не в заряде)
+        // ЗАТЯГИВАНИЕ игрока к вихрю (как чёрная дыра)
         const dx = this.x + this.width / 2 - (player.x + player.width / 2);
         const dy = this.y + this.height / 2 - (player.y + player.height / 2);
         const dist = Math.hypot(dx, dy);
         
-        if (dist < 280 && dist > 30 && !this.isCharging) {
+        if (dist < 280 && dist > 25) {
             const angle = Math.atan2(dy, dx);
-            const force = this.suckStrength * (1 - Math.min(1, dist / 280));
-            player.velX -= Math.cos(angle) * force;
-            player.velY -= Math.sin(angle) * force;
+            // Сила притяжения увеличивается при приближении
+            const force = this.suckStrength * (1 - Math.min(0.8, dist / 280));
+            // ПРИТЯГИВАЕМ игрока к вихрю (положительное направление)
+            player.velX += Math.cos(angle) * force;
+            player.velY += Math.sin(angle) * force;
         }
     }
     
@@ -390,29 +369,26 @@ class WhirlwindEnemy {
         if (!this.active) return;
         const drawX = this.x - cameraX;
         
-        // Основной круг
         ctx.fillStyle = this.color;
         ctx.beginPath();
         ctx.arc(drawX + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
         ctx.fill();
         
-        // Спираль вихря (детали)
         ctx.fillStyle = '#ffffff';
         for (let i = 0; i < 3; i++) {
             const angle = this.rotation + i * Math.PI * 2 / 3;
-            const radius = 14;
+            const radius = 12;
             const px = drawX + this.width / 2 + Math.cos(angle) * radius;
             const py = this.y + this.height / 2 + Math.sin(angle) * radius;
             ctx.beginPath();
-            ctx.arc(px, py, 6, 0, Math.PI * 2);
+            ctx.arc(px, py, 5, 0, Math.PI * 2);
             ctx.fill();
         }
         
-        // Внешние "крылья" вихря
         ctx.fillStyle = '#88ccff';
         for (let i = 0; i < 4; i++) {
             const angle = this.rotation + i * Math.PI * 2 / 4;
-            const radius = 20;
+            const radius = 18;
             const px = drawX + this.width / 2 + Math.cos(angle) * radius;
             const py = this.y + this.height / 2 + Math.sin(angle) * radius;
             ctx.beginPath();
@@ -420,26 +396,13 @@ class WhirlwindEnemy {
             ctx.fill();
         }
         
-        // Глаза
         ctx.fillStyle = '#000';
         ctx.fillRect(drawX + 14, this.y + 15, 7, 7);
         ctx.fillRect(drawX + 24, this.y + 15, 7, 7);
         
-        // Рот
         ctx.fillStyle = '#000';
         ctx.fillRect(drawX + 16, this.y + 30, 13, 4);
         
-        // Эффект заряда
-        if (this.isCharging) {
-            ctx.fillStyle = '#ff0000';
-            for (let i = 0; i < 3; i++) {
-                ctx.beginPath();
-                ctx.arc(drawX + this.width / 2, this.y - 10 - i * 6, 3, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-        
-        // Полоска здоровья
         if (this.health < this.maxHealth) {
             ctx.fillStyle = '#4af626';
             ctx.fillRect(drawX, this.y - 8, (this.width * this.health) / this.maxHealth, 4);
@@ -468,7 +431,6 @@ class BumEnemy {
         
         this.beardPhase += 0.05;
         
-        // Лава наносит урон каждую секунду
         this.lavaDamageTimer++;
         if (this.lavaDamageTimer >= 60 && this.lavaPlatform) {
             if (player.x + player.width > this.lavaPlatform.x && player.x < this.lavaPlatform.x + this.lavaPlatform.width) {
@@ -502,7 +464,6 @@ class BumEnemy {
             particlePool.acquire(this.x + this.width / 2, this.y + this.height / 2, '#ff8800');
         }
         
-        // Даём ключи
         for (let i = 0; i < 3; i++) {
             levelKeys.push({
                 x: this.x + this.width / 2 - 15 + i * 20,
@@ -518,44 +479,35 @@ class BumEnemy {
         if (!this.active) return;
         const drawX = this.x - cameraX;
         
-        // Тело
         ctx.fillStyle = this.color;
         ctx.fillRect(drawX, this.y, this.width, this.height);
         
-        // Борода
         ctx.fillStyle = '#cccccc';
         for (let i = 0; i < 5; i++) {
             const offset = Math.sin(this.beardPhase + i) * 2;
             ctx.fillRect(drawX + 8 + i * 8, this.y + 38 + offset, 6, 12);
         }
         
-        // Лицо
         ctx.fillStyle = '#DEB887';
         ctx.fillRect(drawX + 10, this.y + 15, 30, 25);
         
-        // Глаза
         ctx.fillStyle = '#000';
         ctx.fillRect(drawX + 15, this.y + 22, 7, 7);
         ctx.fillRect(drawX + 28, this.y + 22, 7, 7);
         
-        // Нос
         ctx.fillStyle = '#aa6644';
         ctx.fillRect(drawX + 23, this.y + 30, 5, 8);
         
-        // Рот
         ctx.fillStyle = '#664422';
         ctx.fillRect(drawX + 18, this.y + 42, 15, 4);
         
-        // Шапка
         ctx.fillStyle = '#556b2f';
         ctx.fillRect(drawX + 5, this.y - 5, 40, 10);
         ctx.fillRect(drawX + 15, this.y - 12, 20, 10);
         
-        // Детали на шапке
         ctx.fillStyle = '#ffcc00';
         ctx.fillRect(drawX + 23, this.y - 8, 4, 4);
         
-        // Лава на платформе
         if (this.lavaPlatform) {
             ctx.fillStyle = '#ff4400aa';
             ctx.fillRect(this.lavaPlatform.x - cameraX, this.lavaPlatform.y - 5, this.lavaPlatform.width, 6);
@@ -563,7 +515,6 @@ class BumEnemy {
             for (let i = 0; i < this.lavaPlatform.width; i += 8) {
                 ctx.fillRect(this.lavaPlatform.x - cameraX + i, this.lavaPlatform.y - 7 + Math.sin(Date.now() / 100 + i) * 3, 5, 5);
             }
-            // Пузырьки лавы
             ctx.fillStyle = '#ffaa00';
             for (let i = 0; i < 5; i++) {
                 ctx.beginPath();
@@ -572,7 +523,6 @@ class BumEnemy {
             }
         }
         
-        // Полоска здоровья
         if (this.health < this.maxHealth) {
             ctx.fillStyle = '#4af626';
             ctx.fillRect(drawX, this.y - 8, (this.width * this.health) / this.maxHealth, 4);
@@ -2098,7 +2048,7 @@ function generateLevel(level){
         if(bhb) bhb.style.display='none'; 
     } 
     
-    // Вихри (летают в воздухе)
+    // Вихри (летают в воздухе, притягивают)
     for(let i=0;i<Math.floor(level/3)+1;i++){
         const randomX = 300 + Math.random() * (levelWidth - 600);
         const randomY = 100 + Math.random() * 200;
