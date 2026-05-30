@@ -876,16 +876,6 @@ button:disabled {
     100% { transform: scale(0) translateY(-60px); opacity: 0; }
 }
 
-/* Анимация смены биома */
-@keyframes biomTransition {
-    0% { opacity: 1; }
-    100% { opacity: 0.8; }
-}
-
-.biom-transition {
-    animation: biomTransition 0.5s ease-out;
-}
-
 .skin-particle-05 {
     position: fixed;
     font-size: 16px;
