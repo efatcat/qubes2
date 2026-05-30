@@ -1,4 +1,4 @@
-// game.js - QUBES FULL VERSION (ТОЛЬКО ВАШИ 50 БИОМОВ)
+// game.js - QUBES FULL VERSION (БЕЗ ЗАВИСАНИЙ)
 const CONFIG = {
     player: { width: 40, height: 40, speed: 6, jumpPower: 16, gravity: 0.8, friction: 0.85, dashSpeed: 20, dashDuration: 12, dashCooldown: 45, maxDashes: 2, doubleJump: true },
     melee: { radius: 95, cooldownMax: 18, damage: 1 },
@@ -89,7 +89,7 @@ let biomLoaded = false;
 let biomFileNames = [];
 let biomLoadingStarted = false;
 let biomLoadedCount = 0;
-let biomTotalCount = 50; // ТОЛЬКО 50 ФАЙЛОВ
+let biomTotalCount = 50;
 let biomLoadMessage = null;
 let firstBiomLoaded = false;
 
@@ -161,7 +161,7 @@ function getKaleidoscopeColor() {
     return lastKaleidoscopeColor;
 }
 
-// ==================== СИСТЕМА БИОМОВ (ТОЛЬКО ВАШИ 50 ФАЙЛОВ) ====================
+// ==================== СИСТЕМА БИОМОВ ====================
 function showBiomLoadingMessage() {
     if (biomLoadMessage) return;
     biomLoadMessage = document.createElement('div');
@@ -190,7 +190,7 @@ function updateBiomLoadingMessage() {
         progressSpan.textContent = percent;
         loadedSpan.textContent = biomLoadedCount;
         
-        if (biomLoadedCount === biomTotalCount) {
+        if (biomLoadedCount >= biomTotalCount) {
             msg.style.backgroundColor = 'rgba(74,246,38,0.2)';
             msg.style.color = '#4af626';
             msg.innerHTML = '✅ Биомы загружены! (' + biomLoadedCount + ' шт.)';
@@ -210,34 +210,29 @@ function startAsyncBiomLoading() {
     biomLoadingStarted = true;
     showBiomLoadingMessage();
     
-    // ТОЛЬКО ВАШИ 50 ФАЙЛОВ: biom1.png ... biom50.png
     biomTotalCount = 50;
     biomImages = new Array(biomTotalCount);
     biomFileNames = new Array(biomTotalCount);
+    let loadedCountTemp = 0;
     
     function onBiomLoaded(index, file, img) {
         biomImages[index] = img;
         biomFileNames[index] = file;
-        biomLoadedCount++;
+        loadedCountTemp++;
+        biomLoadedCount = loadedCountTemp;
         updateBiomLoadingMessage();
         
-        // ПЕРВЫЙ ЗАГРУЖЕННЫЙ БИОМ - СРАЗУ ПОЯВЛЯЕТСЯ
         if (!firstBiomLoaded && img && img.complete && img.naturalWidth > 0) {
             firstBiomLoaded = true;
             currentBiom = img;
-            console.log(`Первый биом загружен и отображается: ${file}`);
+            console.log(`Первый биом загружен: ${file}`);
         }
         
-        // Если все загружены
-        if (biomLoadedCount === biomTotalCount) {
+        if (loadedCountTemp >= biomTotalCount) {
             biomLoaded = true;
-            if (!firstBiomLoaded && biomImages[0]) {
-                currentBiom = biomImages[0];
-            }
         }
     }
     
-    // Загружаем biom1.png ... biom50.png
     for (let i = 1; i <= biomTotalCount; i++) {
         const index = i - 1;
         const file = `bioms/biom${i}.png`;
@@ -246,40 +241,23 @@ function startAsyncBiomLoading() {
             onBiomLoaded(index, file, img);
         };
         img.onerror = () => {
-            // Если .png не загрузился, пробуем .jpg
             const jpgFile = `bioms/biom${i}.jpg`;
             const jpgImg = new Image();
             jpgImg.onload = () => {
                 onBiomLoaded(index, jpgFile, jpgImg);
             };
             jpgImg.onerror = () => {
-                biomLoadedCount++;
+                loadedCountTemp++;
+                biomLoadedCount = loadedCountTemp;
                 updateBiomLoadingMessage();
-                if (biomLoadedCount === biomTotalCount && !firstBiomLoaded) {
-                    const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
-                    currentBiom = randomBiom;
+                if (loadedCountTemp >= biomTotalCount && !firstBiomLoaded && BUILTIN_BIOMS.length > 0) {
+                    currentBiom = BUILTIN_BIOMS[0];
+                    firstBiomLoaded = true;
                 }
             };
             jpgImg.src = jpgFile;
         };
         img.src = file;
-    }
-}
-
-function selectRandomBiom() {
-    const validIndices = [];
-    for (let i = 0; i < biomImages.length; i++) {
-        if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
-            validIndices.push(i);
-        }
-    }
-    
-    if (validIndices.length > 0) {
-        const randomIndex = validIndices[Math.floor(Math.random() * validIndices.length)];
-        currentBiom = biomImages[randomIndex];
-    } else {
-        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
-        currentBiom = randomBiom;
     }
 }
 
@@ -294,30 +272,7 @@ function changeBiom() {
     if (validIndices.length > 0) {
         const randomIndex = validIndices[Math.floor(Math.random() * validIndices.length)];
         currentBiom = biomImages[randomIndex];
-    } else if (BUILTIN_BIOMS.length > 0) {
-        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
-        currentBiom = randomBiom;
     }
-}
-
-// Функция для отладки биомов (вызвать в консоли)
-function debugBioms() {
-    const valid = [];
-    for (let i = 0; i < biomImages.length; i++) {
-        if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
-            valid.push(biomFileNames[i]);
-        }
-    }
-    console.log(`=== ДОСТУПНЫЕ БИОМЫ (${valid.length} из 50) ===`);
-    valid.forEach((name, idx) => {
-        console.log(`${idx + 1}. ${name}`);
-    });
-    if (valid.length > 0) {
-        console.log(`Каждый имеет шанс: ${(100 / valid.length).toFixed(1)}%`);
-    } else {
-        console.log('Биомы не найдены! Проверьте папку bioms/');
-    }
-    return valid;
 }
 
 // ==================== АУДИО ====================
