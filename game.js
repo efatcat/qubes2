@@ -1,9 +1,9 @@
-// game.js - QUBES FULL VERSION WITH ASYNC BIOMS
+// game.js - QUBES FULL VERSION (Асинхронные биомы + новые враги: Вихрь и Бомж)
 const CONFIG = {
     player: { width: 40, height: 40, speed: 6, jumpPower: 16, gravity: 0.8, friction: 0.85, dashSpeed: 20, dashDuration: 12, dashCooldown: 45, maxDashes: 2, doubleJump: true },
     melee: { radius: 95, cooldownMax: 18, damage: 1 },
     elo: { coinsMultiplier: 2, damageDivider: 5 },
-    enemies: { baseHealth: { normal: 1, shooter: 2, patrol: 3, jumper: 1, flying: 2 }, baseScore: { normal: 100, shooter: 120, patrol: 150, jumper: 110, flying: 200 } },
+    enemies: { baseHealth: { normal: 1, shooter: 2, patrol: 3, jumper: 1, flying: 2, whirlwind: 8, bum: 5 }, baseScore: { normal: 100, shooter: 120, patrol: 150, jumper: 110, flying: 200, whirlwind: 250, bum: 500 } },
     boss: { health: 20, damage: 30, attackCooldown: 120, moveSpeed: 2 },
     particles: { maxCount: 600, enabled: true },
     audio: { enabled: true, volume: 0.4 },
@@ -88,7 +88,13 @@ let biomImages = [];
 let biomLoaded = false;
 let biomFileNames = [];
 let biomLoadingStarted = false;
-let biomLoadProgress = 0;
+let biomLoadedCount = 0;
+let biomTotalCount = 50;
+let biomLoadMessage = null;
+let firstBiomLoaded = false;
+
+// ДОПОЛНИТЕЛЬНЫЕ ВРАГИ
+let specialEnemies = [];
 
 const BUILTIN_BIOMS = [
     { type: 'gradient', colors: ['#0a0a1a', '#1a1a2e'], name: 'Тёмный лес' },
@@ -158,38 +164,44 @@ function getKaleidoscopeColor() {
     return lastKaleidoscopeColor;
 }
 
-// ==================== СИСТЕМА БИОМОВ (АСИНХРОННАЯ ЗАГРУЗКА) ====================
+// ==================== СИСТЕМА БИОМОВ (АСИНХРОННАЯ) ====================
 function showBiomLoadingMessage() {
-    const msg = document.createElement('div');
-    msg.id = 'biomLoadingMsg';
-    msg.style.position = 'fixed';
-    msg.style.bottom = '20px';
-    msg.style.left = '20px';
-    msg.style.backgroundColor = 'rgba(0,0,0,0.7)';
-    msg.style.color = '#FFDE7D';
-    msg.style.padding = '8px 15px';
-    msg.style.borderRadius = '20px';
-    msg.style.fontSize = '12px';
-    msg.style.fontFamily = 'Unbounded, monospace';
-    msg.style.zIndex = '1000';
-    msg.style.backdropFilter = 'blur(5px)';
-    msg.innerHTML = '🌄 Загрузка биомов... <span id="biomProgress">0</span>%';
-    document.body.appendChild(msg);
+    if (biomLoadMessage) return;
+    biomLoadMessage = document.createElement('div');
+    biomLoadMessage.id = 'biomLoadingMsg';
+    biomLoadMessage.style.position = 'fixed';
+    biomLoadMessage.style.bottom = '20px';
+    biomLoadMessage.style.left = '20px';
+    biomLoadMessage.style.backgroundColor = 'rgba(0,0,0,0.7)';
+    biomLoadMessage.style.color = '#FFDE7D';
+    biomLoadMessage.style.padding = '8px 15px';
+    biomLoadMessage.style.borderRadius = '20px';
+    biomLoadMessage.style.fontSize = '12px';
+    biomLoadMessage.style.fontFamily = 'Unbounded, monospace';
+    biomLoadMessage.style.zIndex = '1000';
+    biomLoadMessage.style.backdropFilter = 'blur(5px)';
+    biomLoadMessage.innerHTML = '🌄 Загрузка биомов... <span id="biomProgress">0</span>% (<span id="biomLoadedCount">0</span>/<span id="biomTotalCount">50</span>)';
+    document.body.appendChild(biomLoadMessage);
 }
 
-function updateBiomLoadingMessage(percent) {
+function updateBiomLoadingMessage() {
     const msg = document.getElementById('biomLoadingMsg');
     const progressSpan = document.getElementById('biomProgress');
-    if (msg && progressSpan) {
+    const loadedSpan = document.getElementById('biomLoadedCount');
+    if (msg && progressSpan && loadedSpan) {
+        const percent = Math.floor((biomLoadedCount / biomTotalCount) * 100);
         progressSpan.textContent = percent;
-        if (percent >= 100) {
+        loadedSpan.textContent = biomLoadedCount;
+        
+        if (biomLoadedCount >= biomTotalCount) {
             msg.style.backgroundColor = 'rgba(74,246,38,0.2)';
             msg.style.color = '#4af626';
-            msg.innerHTML = '✅ Биомы загружены!';
+            msg.innerHTML = '✅ Биомы загружены! (' + biomLoadedCount + ' шт.)';
             safeTimeout(() => {
                 if (msg) msg.style.opacity = '0';
                 safeTimeout(() => {
                     if (msg) msg.remove();
+                    biomLoadMessage = null;
                 }, 1000);
             }, 2000);
         }
@@ -201,78 +213,58 @@ function startAsyncBiomLoading() {
     biomLoadingStarted = true;
     showBiomLoadingMessage();
     
-    const possibleFiles = [];
-    for (let i = 1; i <= 50; i++) {
-        possibleFiles.push(`bioms/biom${i}.png`);
-        possibleFiles.push(`bioms/biom${i}.jpg`);
-    }
+    biomTotalCount = 50;
+    biomImages = new Array(biomTotalCount);
+    biomFileNames = new Array(biomTotalCount);
+    let loadedCountTemp = 0;
     
-    const namedFiles = ['forest', 'cave', 'mountain', 'volcano', 'ice', 'swamp', 
-        'jungle', 'ruins', 'temple', 'waterfall', 'cliffs', 'valley',
-        'desert', 'snow', 'lava', 'abyss', 'sky', 'ocean'];
-    
-    for (const name of namedFiles) {
-        possibleFiles.push(`bioms/${name}.png`);
-        possibleFiles.push(`bioms/${name}.jpg`);
-        possibleFiles.push(`bioms/${name}.webp`);
-    }
-    
-    let loadedCount = 0;
-    let totalToLoad = possibleFiles.length;
-    biomImages = new Array(totalToLoad);
-    biomFileNames = new Array(totalToLoad);
-    
-    function checkComplete() {
-        loadedCount++;
-        const percent = Math.floor((loadedCount / totalToLoad) * 100);
-        updateBiomLoadingMessage(percent);
+    function onBiomLoaded(index, file, img) {
+        biomImages[index] = img;
+        biomFileNames[index] = file;
+        loadedCountTemp++;
+        biomLoadedCount = loadedCountTemp;
+        updateBiomLoadingMessage();
         
-        if (loadedCount >= totalToLoad) {
-            const validCount = biomFileNames.filter(f => f !== null).length;
-            console.log(`Загружено биомов: ${validCount} шт.`);
+        if (!firstBiomLoaded && img && img.complete && img.naturalWidth > 0) {
+            firstBiomLoaded = true;
+            currentBiom = img;
+            console.log(`Первый биом загружен: ${file}`);
+        }
+        
+        if (loadedCountTemp >= biomTotalCount) {
             biomLoaded = true;
-            selectRandomBiom();
         }
     }
     
-    possibleFiles.forEach((file, index) => {
+    for (let i = 1; i <= biomTotalCount; i++) {
+        const index = i - 1;
+        const file = `bioms/biom${i}.png`;
         const img = new Image();
         img.onload = () => {
-            biomImages[index] = img;
-            biomFileNames[index] = file;
-            checkComplete();
+            onBiomLoaded(index, file, img);
         };
         img.onerror = () => {
-            biomImages[index] = null;
-            biomFileNames[index] = null;
-            checkComplete();
+            const jpgFile = `bioms/biom${i}.jpg`;
+            const jpgImg = new Image();
+            jpgImg.onload = () => {
+                onBiomLoaded(index, jpgFile, jpgImg);
+            };
+            jpgImg.onerror = () => {
+                loadedCountTemp++;
+                biomLoadedCount = loadedCountTemp;
+                updateBiomLoadingMessage();
+                if (loadedCountTemp >= biomTotalCount && !firstBiomLoaded && BUILTIN_BIOMS.length > 0) {
+                    currentBiom = BUILTIN_BIOMS[0];
+                    firstBiomLoaded = true;
+                }
+            };
+            jpgImg.src = jpgFile;
         };
         img.src = file;
-    });
-}
-
-function selectRandomBiom() {
-    const validIndices = [];
-    for (let i = 0; i < biomImages.length; i++) {
-        if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
-            validIndices.push(i);
-        }
-    }
-    
-    if (validIndices.length > 0) {
-        const randomIndex = validIndices[Math.floor(Math.random() * validIndices.length)];
-        currentBiom = biomImages[randomIndex];
-    } else {
-        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
-        currentBiom = randomBiom;
     }
 }
 
 function changeBiom() {
-    if (!biomLoaded && biomLoadingStarted) {
-        return;
-    }
-    
     const validIndices = [];
     for (let i = 0; i < biomImages.length; i++) {
         if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
@@ -283,26 +275,7 @@ function changeBiom() {
     if (validIndices.length > 0) {
         const randomIndex = validIndices[Math.floor(Math.random() * validIndices.length)];
         currentBiom = biomImages[randomIndex];
-    } else if (BUILTIN_BIOMS.length > 0) {
-        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
-        currentBiom = randomBiom;
     }
-}
-
-// Функция для отладки биомов (вызвать в консоли)
-function debugBioms() {
-    const valid = [];
-    for (let i = 0; i < biomImages.length; i++) {
-        if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
-            valid.push(biomFileNames[i]);
-        }
-    }
-    console.log(`=== ДОСТУПНЫЕ БИОМЫ (${valid.length} шт.) ===`);
-    valid.forEach((name, idx) => {
-        console.log(`${idx + 1}. ${name}`);
-    });
-    console.log(`Каждый имеет шанс: ${(100 / valid.length).toFixed(1)}%`);
-    return valid;
 }
 
 // ==================== АУДИО ====================
@@ -1060,6 +1033,22 @@ class Player {
             }
         }
         
+        for (let i = 0; i < specialEnemies.length; i++) {
+            const se = specialEnemies[i];
+            if (!se.active) continue;
+            const seCenterX = se.x + se.width/2;
+            const seCenterY = se.y + se.height/2;
+            const dist = Math.hypot(centerX - seCenterX, centerY - seCenterY);
+            if (dist < CONFIG.melee.radius) {
+                if (se.takeDamage()) {
+                    specialEnemies = specialEnemies.filter(x => x !== se);
+                }
+                hitSomething = true;
+                updateCombo();
+                this.createHitEffect(seCenterX, seCenterY);
+            }
+        }
+        
         if (boss && boss.active) {
             const bossCenterX = boss.x + boss.width/2;
             const bossCenterY = boss.y + boss.height/2;
@@ -1366,6 +1355,215 @@ class Player {
             ctx.beginPath();
             ctx.arc(drawX + this.width/2, this.y - 8, 5, 0, Math.PI * 2);
             ctx.fill();
+        }
+    }
+}
+
+// ==================== КЛАСС ВИХРЬ (притягивает игрока) ====================
+class WhirlwindEnemy {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.width = 45;
+        this.height = 45;
+        this.color = '#00aaff';
+        this.speed = 0.8;
+        this.direction = Math.random() > 0.5 ? 1 : -1;
+        this.health = 8;
+        this.maxHealth = 8;
+        this.active = true;
+        this.suckStrength = 2.5;
+        this.rotation = 0;
+        this.startX = x;
+        this.floatPhase = Math.random() * Math.PI * 2;
+    }
+    
+    update() {
+        if (!this.active || !player) return;
+        
+        this.rotation += 0.1;
+        this.floatPhase += 0.05;
+        this.y += Math.sin(this.floatPhase) * 1;
+        
+        this.x += this.speed * this.direction;
+        if (Math.abs(this.x - this.startX) > 200) this.direction *= -1;
+        
+        this.y += 0.8;
+        for (let platform of platforms) {
+            if (this.x < platform.x + platform.width && this.x + this.width > platform.x &&
+                this.y + this.height > platform.y && this.y + this.height < platform.y + 30) {
+                this.y = platform.y - this.height;
+            }
+        }
+        
+        const dx = this.x + this.width / 2 - (player.x + player.width / 2);
+        const dy = this.y + this.height / 2 - (player.y + player.height / 2);
+        const dist = Math.hypot(dx, dy);
+        
+        if (dist < 300 && dist > 25) {
+            const angle = Math.atan2(dy, dx);
+            const force = this.suckStrength * (1 - Math.min(1, dist / 300));
+            player.velX -= Math.cos(angle) * force;
+            player.velY -= Math.sin(angle) * force;
+        }
+    }
+    
+    takeDamage(amount = 1) {
+        this.health -= amount;
+        if (this.health <= 0) {
+            this.destroy();
+            return true;
+        }
+        return false;
+    }
+    
+    destroy() {
+        this.active = false;
+        addScore(250 * comboMultiplier);
+        updateCombo();
+        AudioSys.collect();
+        for (let i = 0; i < 30; i++) particlePool.acquire(this.x + this.width / 2, this.y + this.height / 2, '#00aaff');
+        if (Math.random() < 0.4) coins.push({ x: this.x + this.width / 2, y: this.y + this.height / 2, size: 12, color: '#FFDE7D', bounce: 0 });
+    }
+    
+    draw(ctx) {
+        if (!this.active) return;
+        const drawX = this.x - cameraX;
+        
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(drawX + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#ffffff';
+        for (let i = 0; i < 3; i++) {
+            const angle = this.rotation + i * Math.PI * 2 / 3;
+            const radius = 12;
+            const px = drawX + this.width / 2 + Math.cos(angle) * radius;
+            const py = this.y + this.height / 2 + Math.sin(angle) * radius;
+            ctx.beginPath();
+            ctx.arc(px, py, 5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        ctx.fillStyle = '#000';
+        ctx.fillRect(drawX + 12, this.y + 15, 8, 8);
+        ctx.fillRect(drawX + 25, this.y + 15, 8, 8);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(drawX + 15, this.y + 30, 15, 4);
+        
+        if (this.health < this.maxHealth) {
+            ctx.fillStyle = '#4af626';
+            ctx.fillRect(drawX, this.y - 8, (this.width * this.health) / this.maxHealth, 4);
+        }
+    }
+}
+
+// ==================== КЛАСС БОМЖ (лава на платформе) ====================
+class BumEnemy {
+    constructor(x, y, platform) {
+        this.x = x;
+        this.y = y;
+        this.width = 50;
+        this.height = 55;
+        this.color = '#8B4513';
+        this.health = 5;
+        this.maxHealth = 5;
+        this.active = true;
+        this.lavaPlatform = platform;
+        this.lavaDamageTimer = 0;
+        this.beardPhase = 0;
+    }
+    
+    update() {
+        if (!this.active || !player) return;
+        
+        this.beardPhase += 0.05;
+        
+        this.lavaDamageTimer++;
+        if (this.lavaDamageTimer >= 60 && this.lavaPlatform) {
+            if (player.x + player.width > this.lavaPlatform.x && player.x < this.lavaPlatform.x + this.lavaPlatform.width) {
+                if (player.y + player.height > this.lavaPlatform.y && player.y < this.lavaPlatform.y + this.lavaPlatform.height) {
+                    const damage = Math.ceil(maxHealth * 0.25);
+                    player.takeDamage(damage, (player.x < this.x ? -8 : 8), -6, '#ff6600');
+                    for (let i = 0; i < 10; i++) {
+                        particlePool.acquire(player.x + player.width / 2, player.y + player.height - 5, '#ff4400');
+                    }
+                }
+            }
+            this.lavaDamageTimer = 0;
+        }
+    }
+    
+    takeDamage(amount = 1) {
+        this.health -= amount;
+        if (this.health <= 0) {
+            this.destroy();
+            return true;
+        }
+        return false;
+    }
+    
+    destroy() {
+        this.active = false;
+        addScore(500 * comboMultiplier);
+        updateCombo();
+        AudioSys.bossDefeat();
+        for (let i = 0; i < 50; i++) particlePool.acquire(this.x + this.width / 2, this.y + this.height / 2, '#ff8800');
+        
+        for (let i = 0; i < 3; i++) {
+            levelKeys.push({
+                x: this.x + this.width / 2 - 15 + i * 20,
+                y: this.y + this.height / 2,
+                size: 25,
+                collected: false,
+                floatOffset: 0
+            });
+        }
+    }
+    
+    draw(ctx) {
+        if (!this.active) return;
+        const drawX = this.x - cameraX;
+        
+        ctx.fillStyle = this.color;
+        ctx.fillRect(drawX, this.y, this.width, this.height);
+        
+        ctx.fillStyle = '#cccccc';
+        for (let i = 0; i < 5; i++) {
+            const offset = Math.sin(this.beardPhase + i) * 2;
+            ctx.fillRect(drawX + 8 + i * 8, this.y + 35 + offset, 6, 12);
+        }
+        
+        ctx.fillStyle = '#DEB887';
+        ctx.fillRect(drawX + 10, this.y + 15, 30, 25);
+        
+        ctx.fillStyle = '#000';
+        ctx.fillRect(drawX + 15, this.y + 22, 7, 7);
+        ctx.fillRect(drawX + 28, this.y + 22, 7, 7);
+        
+        ctx.fillStyle = '#aa6644';
+        ctx.fillRect(drawX + 23, this.y + 30, 5, 8);
+        
+        ctx.fillStyle = '#664422';
+        ctx.fillRect(drawX + 18, this.y + 40, 15, 4);
+        
+        ctx.fillStyle = '#556b2f';
+        ctx.fillRect(drawX + 5, this.y - 5, 40, 10);
+        ctx.fillRect(drawX + 15, this.y - 12, 20, 10);
+        
+        if (this.lavaPlatform) {
+            ctx.fillStyle = '#ff4400aa';
+            ctx.fillRect(this.lavaPlatform.x - cameraX, this.lavaPlatform.y - 5, this.lavaPlatform.width, 6);
+            ctx.fillStyle = '#ff8800aa';
+            for (let i = 0; i < this.lavaPlatform.width; i += 8) {
+                ctx.fillRect(this.lavaPlatform.x - cameraX + i, this.lavaPlatform.y - 7 + Math.sin(Date.now() / 100 + i) * 3, 5, 5);
+            }
+        }
+        
+        if (this.health < this.maxHealth) {
+            ctx.fillStyle = '#4af626';
+            ctx.fillRect(drawX, this.y - 8, (this.width * this.health) / this.maxHealth, 4);
         }
     }
 }
@@ -1752,7 +1950,7 @@ class Platform {
 
 // ==================== ГЕНЕРАЦИЯ УРОВНЯ ====================
 function generateLevel(level){ 
-    platforms=[]; enemies=[]; flyingEnemies=[]; coins=[]; powerUps=[]; levelKeys=[]; 
+    platforms=[]; enemies=[]; flyingEnemies=[]; coins=[]; powerUps=[]; levelKeys=[]; specialEnemies=[]; 
     roundCoins=0; roundDamage=0; 
     const minHeight=100,maxHeight=canvas.height-150; 
     const platformCount=CONFIG.level.basePlatforms+Math.floor(level*CONFIG.level.platformGrowth); 
@@ -1761,13 +1959,26 @@ function generateLevel(level){
     levelWidth=CONFIG.level.baseWidth+(level-1)*CONFIG.level.widthGrowth; 
     platforms.push(new Platform(80,canvas.height-200,180,0)); 
     let lastX=100,lastY=canvas.height-250,direction=1; 
+    let bumPlaced = false;
+    
     for(let i=0;i<platformCount;i++){ 
         const width=70+Math.random()*130,minXGap=120+(level*10),maxXGap=220+(level*15); 
         const x=lastX+minXGap+Math.random()*(maxXGap-minXGap); 
         if(Math.random()>0.6)direction*=-1; 
         const yChange=80+Math.random()*100; 
         let y=Math.max(minHeight,Math.min(maxHeight,lastY+direction*yChange)); 
-        platforms.push(new Platform(x,y,width,Math.floor(Math.random()*platformTextures.length))); 
+        const newPlatform = new Platform(x,y,width,Math.floor(Math.random()*platformTextures.length));
+        platforms.push(newPlatform);
+        
+        // Бомж (начиная с 3 уровня)
+        if(!bumPlaced && level >= 3 && i > 5 && i < platformCount-3 && Math.random() < 0.2) {
+            const bumX = newPlatform.x + newPlatform.width/2 - 25;
+            const bumY = newPlatform.y - 55;
+            const bum = new BumEnemy(bumX, bumY, newPlatform);
+            specialEnemies.push(bum);
+            bumPlaced = true;
+        }
+        
         if(i>2&&i<platformCount-2&&Math.random()<0.4){const cc=Math.floor(Math.random()*3)+1;for(let j=0;j<cc;j++)coins.push({x:x+20+j*25,y:y-30,size:12,color:'#FFDE7D',bounce:Math.random()*Math.PI*2});} 
         lastX=x;lastY=y; 
     } 
@@ -1793,6 +2004,14 @@ function generateLevel(level){
         const bhb = document.getElementById('bossHealthBar');
         if(bhb) bhb.style.display='none'; 
     } 
+    
+    // Вихри (с 1 уровня)
+    for(let i=0;i<Math.floor(level/3)+1;i++){
+        const pi=Math.floor(Math.random()*(platforms.length-5))+2;
+        const p=platforms[pi];
+        if(p) specialEnemies.push(new WhirlwindEnemy(p.x+p.width/2-22, p.y-45));
+    }
+    
     for(let i=0;i<flyingEnemyCount;i++)flyingEnemies.push(new FlyingEnemy(300+Math.random()*(levelWidth-600),100+Math.random()*200)); 
     for(let i=0;i<Math.floor(level/2)+1;i++){const pi=Math.floor(Math.random()*(platforms.length-10))+5;const p=platforms[pi]; if(p) powerUps.push({x:p.x+p.width/2,y:p.y-40,size:15,color:'#FF2E63',type:'health'});} 
     for(let cx=800;cx<levelWidth-300;cx+=800)platforms.push(new Platform(cx,canvas.height-180,100,2)); 
@@ -1804,7 +2023,24 @@ function updateCamera(){const targetX=player.x-canvas.width*CONFIG.camera.player
 function updateCoins(){for(let i=coins.length-1;i>=0;i--){const c=coins[i];c.bounce+=0.1;c.y+=Math.sin(c.bounce)*0.5;if(player.checkCollision({x:c.x-c.size/2,y:c.y-c.size/2,width:c.size,height:c.size})){addScore(50*comboMultiplier);updateCombo();AudioSys.collect();roundCoins++;for(let j=0;j<15;j++)particlePool.acquire(c.x,c.y,'#FFDE7D');coins.splice(i,1);}}}
 function updateKeys(){for(let i=levelKeys.length-1;i>=0;i--){const k=levelKeys[i];if(k.collected)continue;k.floatOffset+=0.06;const ky=k.y+Math.sin(k.floatOffset)*6;if(player.checkCollision({x:k.x,y:ky,width:k.size,height:k.size})){k.collected=true;totalKeys++;saveAllData();AudioSys.collect();for(let j=0;j<20;j++)particlePool.acquire(k.x+k.size/2,ky+k.size/2,'#00BFFF');levelKeys.splice(i,1);}}}
 function updatePowerUps(){for(let i=powerUps.length-1;i>=0;i--){const p=powerUps[i];p.y+=Math.sin(Date.now()/500)*0.5;if(player.checkCollision({x:p.x-p.size/2,y:p.y-p.size/2,width:p.size,height:p.size})){if(p.type==='health'){playerHealth=Math.min(maxHealth,playerHealth+30);updateHealthBar();}else if(p.type==='dash'){player.dashCharges=Math.min(CONFIG.player.maxDashes,player.dashCharges+1);updateDashIndicator();}for(let j=0;j<20;j++)particlePool.acquire(p.x,p.y,p.color);AudioSys.collect();powerUps.splice(i,1);}}}
-function checkEnemyCollisions(){for(let e of enemies){if(e.active&&player.checkCollision(e)){if(player.takeDamage(20,e.x<player.x?10:-10,-8,e.color))return;}}for(let e of flyingEnemies){if(e.active&&player.checkCollision(e)){if(player.takeDamage(25,e.x<player.x?12:-12,-10,'#FF00FF'))return;}}}
+function checkEnemyCollisions(){
+    for(let e of enemies){
+        if(e.active&&player.checkCollision(e)){
+            if(player.takeDamage(20,e.x<player.x?10:-10,-8,e.color)) return;
+        }
+    }
+    for(let e of flyingEnemies){
+        if(e.active&&player.checkCollision(e)){
+            if(player.takeDamage(25,e.x<player.x?12:-12,-10,'#FF00FF')) return;
+        }
+    }
+    for(let e of specialEnemies){
+        if(e.active&&player.checkCollision(e)){
+            let dmg = e instanceof BumEnemy ? 15 : 20;
+            if(player.takeDamage(dmg, e.x<player.x?12:-12, -8, e.color)) return;
+        }
+    }
+}
 function checkCheckpoints(){if(player.x>lastCheckpointX+800){lastCheckpointX=player.x;player.saveCheckpoint();}}
 
 // ==================== ОТРИСОВКА ====================
@@ -1881,6 +2117,9 @@ function gameLoop(){
     decayCombo();
     checkEnemyCollisions();
     checkCheckpoints();
+    for(let e of enemies) e.update();
+    for(let e of flyingEnemies) e.update();
+    for(let e of specialEnemies) e.update();
     if(boss) boss.update();
     if(player.x>levelWidth-100 && (!boss || !boss.active)){
         completeLevel();
@@ -1901,6 +2140,10 @@ function gameLoop(){
         e.draw(ctx);
     }
     for(let e of flyingEnemies){
+        e.update();
+        e.draw(ctx);
+    }
+    for(let e of specialEnemies){
         e.update();
         e.draw(ctx);
     }
@@ -2089,7 +2332,6 @@ async function initGame(){
     resizeCanvas();
     AudioSys.init();
     await bossTextures.load();
-    // НЕ ждём загрузку биомов - запускаем в фоне
     startAsyncBiomLoading();
     loadAuraImages();
     particlePool = new ObjectPool((x,y,c) => new Particle(x,y,c), CONFIG.particles.maxCount);
