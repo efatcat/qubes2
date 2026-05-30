@@ -1,4 +1,4 @@
-// game.js - QUBES FULL VERSION WITH BIOMS
+// game.js - QUBES FULL VERSION WITH BIOMS (FIXED)
 const CONFIG = {
     player: { width: 40, height: 40, speed: 6, jumpPower: 16, gravity: 0.8, friction: 0.85, dashSpeed: 20, dashDuration: 12, dashCooldown: 45, maxDashes: 2, doubleJump: true },
     melee: { radius: 95, cooldownMax: 18, damage: 1 },
@@ -86,6 +86,7 @@ let activeTimeouts = [];
 let currentBiom = null;
 let biomImages = [];
 let biomLoaded = false;
+let biomFileNames = [];
 
 const BUILTIN_BIOMS = [
     { type: 'gradient', colors: ['#0a0a1a', '#1a1a2e'], name: 'Тёмный лес' },
@@ -155,28 +156,43 @@ function getKaleidoscopeColor() {
     return lastKaleidoscopeColor;
 }
 
-// ==================== СИСТЕМА БИОМОВ ====================
+// ==================== СИСТЕМА БИОМОВ (РАВНЫЕ ШАНСЫ) ====================
 async function loadBioms() {
     return new Promise((resolve) => {
         const possibleFiles = [];
-        for (let i = 1; i <= 20; i++) {
+        
+        // Генерируем имена biom1.png - biom50.png и biom1.jpg - biom50.jpg
+        for (let i = 1; i <= 50; i++) {
             possibleFiles.push(`bioms/biom${i}.png`);
             possibleFiles.push(`bioms/biom${i}.jpg`);
         }
-        const namedFiles = ['forest', 'cave', 'mountain', 'volcano', 'ice', 'swamp', 'jungle', 'ruins', 'temple', 'waterfall', 'cliffs', 'valley', 'desert', 'snow', 'lava', 'abyss', 'sky', 'ocean'];
+        
+        // Дополнительные имена
+        const namedFiles = [
+            'forest', 'cave', 'mountain', 'volcano', 'ice', 'swamp', 
+            'jungle', 'ruins', 'temple', 'waterfall', 'cliffs', 'valley',
+            'desert', 'snow', 'lava', 'abyss', 'sky', 'ocean'
+        ];
+        
         for (const name of namedFiles) {
             possibleFiles.push(`bioms/${name}.png`);
             possibleFiles.push(`bioms/${name}.jpg`);
+            possibleFiles.push(`bioms/${name}.webp`);
         }
         
         let loadedCount = 0;
         let totalToLoad = possibleFiles.length;
-        let hasAnyLoaded = false;
         
         function checkComplete() {
             loadedCount++;
             if (loadedCount >= totalToLoad) {
-                if (!hasAnyLoaded) console.log('Биомы не найдены, используем встроенные градиенты');
+                const validCount = biomFileNames.filter(f => f !== null).length;
+                console.log(`Загружено биомов: ${validCount} шт.`);
+                if (validCount === 0) {
+                    console.log('Биомы не найдены, используем встроенные градиенты');
+                } else {
+                    console.log(`Каждый биом имеет шанс ${(100/validCount).toFixed(1)}%`);
+                }
                 biomLoaded = true;
                 selectRandomBiom();
                 resolve();
@@ -187,11 +203,12 @@ async function loadBioms() {
             const img = new Image();
             img.onload = () => {
                 biomImages[index] = img;
-                hasAnyLoaded = true;
+                biomFileNames[index] = file;
                 checkComplete();
             };
             img.onerror = () => {
                 biomImages[index] = null;
+                biomFileNames[index] = null;
                 checkComplete();
             };
             img.src = file;
@@ -199,34 +216,66 @@ async function loadBioms() {
         
         setTimeout(() => {
             if (!biomLoaded) {
+                console.log('Таймаут загрузки биомов, используем градиенты');
                 biomLoaded = true;
                 selectRandomBiom();
                 resolve();
             }
-        }, 5000);
+        }, 10000);
     });
 }
 
 function selectRandomBiom() {
-    const validImages = biomImages.filter(img => img !== null && img.complete && img.naturalWidth > 0);
-    if (validImages.length > 0) {
-        const randomIndex = Math.floor(Math.random() * validImages.length);
-        currentBiom = validImages[randomIndex];
+    const validIndices = [];
+    for (let i = 0; i < biomImages.length; i++) {
+        if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
+            validIndices.push(i);
+        }
+    }
+    
+    if (validIndices.length > 0) {
+        const randomIndex = validIndices[Math.floor(Math.random() * validIndices.length)];
+        currentBiom = biomImages[randomIndex];
+        console.log(`Выбран биом: ${biomFileNames[randomIndex]}`);
     } else {
+        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
+        currentBiom = randomBiom;
+        console.log(`Выбран встроенный биом: ${randomBiom.name}`);
+    }
+}
+
+function changeBiom() {
+    const validIndices = [];
+    for (let i = 0; i < biomImages.length; i++) {
+        if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
+            validIndices.push(i);
+        }
+    }
+    
+    if (validIndices.length > 0) {
+        const randomIndex = validIndices[Math.floor(Math.random() * validIndices.length)];
+        currentBiom = biomImages[randomIndex];
+        console.log(`Смена биома: ${biomFileNames[randomIndex]}`);
+    } else if (BUILTIN_BIOMS.length > 0) {
         const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
         currentBiom = randomBiom;
     }
 }
 
-function changeBiom() {
-    const validImages = biomImages.filter(img => img !== null && img.complete && img.naturalWidth > 0);
-    if (validImages.length > 0) {
-        const randomIndex = Math.floor(Math.random() * validImages.length);
-        currentBiom = validImages[randomIndex];
-    } else {
-        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
-        currentBiom = randomBiom;
+// Функция для отладки биомов (вызвать в консоли)
+function debugBioms() {
+    const valid = [];
+    for (let i = 0; i < biomImages.length; i++) {
+        if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
+            valid.push(biomFileNames[i]);
+        }
     }
+    console.log(`=== ДОСТУПНЫЕ БИОМЫ (${valid.length} шт.) ===`);
+    valid.forEach((name, idx) => {
+        console.log(`${idx + 1}. ${name}`);
+    });
+    console.log(`Каждый имеет шанс: ${(100 / valid.length).toFixed(1)}%`);
+    return valid;
 }
 
 // ==================== АУДИО ====================
