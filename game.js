@@ -1,4 +1,4 @@
-// game.js - QUBES FULL VERSION (Асинхронные биомы + новые враги: Вихрь и Бомж)
+// game.js - QUBES FULL VERSION (Асинхронные биомы + Вихрь и Бомж)
 const CONFIG = {
     player: { width: 40, height: 40, speed: 6, jumpPower: 16, gravity: 0.8, friction: 0.85, dashSpeed: 20, dashDuration: 12, dashCooldown: 45, maxDashes: 2, doubleJump: true },
     melee: { radius: 95, cooldownMax: 18, damage: 1 },
@@ -14,7 +14,7 @@ const CONFIG = {
 
 // СКИНЫ
 const CHEST_SKINS = [
-    { id: 'copper', name: 'Колхозный Козёл', color: '#B87333', chance: 40 },
+    { id: 'copper', name: 'Совхозный Козёл', color: '#B87333', chance: 40 },
     { id: 'sapphire', name: 'Сапфировый страж', color: '#0f52ba', chance: 25 },
     { id: 'magma', name: 'Магмовый голем', color: '#FF4500', chance: 15 },
     { id: 'royal', name: 'Королевский легион', color: '#FFD700', chance: 10 },
@@ -50,7 +50,7 @@ const SPRING_SKINS = [
     { id: 'rose_aura', name: 'Розовая аура', chance: 15, isAura: true },
     { id: 'spring_aura', name: 'Весенняя аура', chance: 10, isAura: true },
     { id: 'sapphire', name: 'Сапфировый страж', chance: 5, isAura: false, skinId: 'sapphire' },
-    { id: 'copper', name: 'Колхозный Козёл', chance: 5, isAura: false, skinId: 'copper' }
+    { id: 'copper', name: 'Совхозный Козёл', chance: 5, isAura: false, skinId: 'copper' }
 ];
 
 // ELITE КЕЙС
@@ -88,12 +88,9 @@ let biomImages = [];
 let biomLoaded = false;
 let biomFileNames = [];
 let biomLoadingStarted = false;
-let biomLoadedCount = 0;
-let biomTotalCount = 50;
-let biomLoadMessage = null;
-let firstBiomLoaded = false;
+let biomLoadProgress = 0;
 
-// ДОПОЛНИТЕЛЬНЫЕ ВРАГИ
+// СПЕЦИАЛЬНЫЕ ВРАГИ
 let specialEnemies = [];
 
 const BUILTIN_BIOMS = [
@@ -164,44 +161,38 @@ function getKaleidoscopeColor() {
     return lastKaleidoscopeColor;
 }
 
-// ==================== СИСТЕМА БИОМОВ (АСИНХРОННАЯ) ====================
+// ==================== СИСТЕМА БИОМОВ (АСИНХРОННАЯ ЗАГРУЗКА) ====================
 function showBiomLoadingMessage() {
-    if (biomLoadMessage) return;
-    biomLoadMessage = document.createElement('div');
-    biomLoadMessage.id = 'biomLoadingMsg';
-    biomLoadMessage.style.position = 'fixed';
-    biomLoadMessage.style.bottom = '20px';
-    biomLoadMessage.style.left = '20px';
-    biomLoadMessage.style.backgroundColor = 'rgba(0,0,0,0.7)';
-    biomLoadMessage.style.color = '#FFDE7D';
-    biomLoadMessage.style.padding = '8px 15px';
-    biomLoadMessage.style.borderRadius = '20px';
-    biomLoadMessage.style.fontSize = '12px';
-    biomLoadMessage.style.fontFamily = 'Unbounded, monospace';
-    biomLoadMessage.style.zIndex = '1000';
-    biomLoadMessage.style.backdropFilter = 'blur(5px)';
-    biomLoadMessage.innerHTML = '🌄 Загрузка биомов... <span id="biomProgress">0</span>% (<span id="biomLoadedCount">0</span>/<span id="biomTotalCount">50</span>)';
-    document.body.appendChild(biomLoadMessage);
+    const msg = document.createElement('div');
+    msg.id = 'biomLoadingMsg';
+    msg.style.position = 'fixed';
+    msg.style.bottom = '20px';
+    msg.style.left = '20px';
+    msg.style.backgroundColor = 'rgba(0,0,0,0.7)';
+    msg.style.color = '#FFDE7D';
+    msg.style.padding = '8px 15px';
+    msg.style.borderRadius = '20px';
+    msg.style.fontSize = '12px';
+    msg.style.fontFamily = 'Unbounded, monospace';
+    msg.style.zIndex = '1000';
+    msg.style.backdropFilter = 'blur(5px)';
+    msg.innerHTML = '🌄 Загрузка биомов... <span id="biomProgress">0</span>%';
+    document.body.appendChild(msg);
 }
 
-function updateBiomLoadingMessage() {
+function updateBiomLoadingMessage(percent) {
     const msg = document.getElementById('biomLoadingMsg');
     const progressSpan = document.getElementById('biomProgress');
-    const loadedSpan = document.getElementById('biomLoadedCount');
-    if (msg && progressSpan && loadedSpan) {
-        const percent = Math.floor((biomLoadedCount / biomTotalCount) * 100);
+    if (msg && progressSpan) {
         progressSpan.textContent = percent;
-        loadedSpan.textContent = biomLoadedCount;
-        
-        if (biomLoadedCount >= biomTotalCount) {
+        if (percent >= 100) {
             msg.style.backgroundColor = 'rgba(74,246,38,0.2)';
             msg.style.color = '#4af626';
-            msg.innerHTML = '✅ Биомы загружены! (' + biomLoadedCount + ' шт.)';
+            msg.innerHTML = '✅ Биомы загружены!';
             safeTimeout(() => {
                 if (msg) msg.style.opacity = '0';
                 safeTimeout(() => {
                     if (msg) msg.remove();
-                    biomLoadMessage = null;
                 }, 1000);
             }, 2000);
         }
@@ -213,58 +204,57 @@ function startAsyncBiomLoading() {
     biomLoadingStarted = true;
     showBiomLoadingMessage();
     
-    biomTotalCount = 50;
-    biomImages = new Array(biomTotalCount);
-    biomFileNames = new Array(biomTotalCount);
-    let loadedCountTemp = 0;
+    const possibleFiles = [];
+    for (let i = 1; i <= 50; i++) {
+        possibleFiles.push(`bioms/biom${i}.png`);
+        possibleFiles.push(`bioms/biom${i}.jpg`);
+    }
     
-    function onBiomLoaded(index, file, img) {
-        biomImages[index] = img;
-        biomFileNames[index] = file;
-        loadedCountTemp++;
-        biomLoadedCount = loadedCountTemp;
-        updateBiomLoadingMessage();
+    const namedFiles = ['forest', 'cave', 'mountain', 'volcano', 'ice', 'swamp', 
+        'jungle', 'ruins', 'temple', 'waterfall', 'cliffs', 'valley',
+        'desert', 'snow', 'lava', 'abyss', 'sky', 'ocean'];
+    
+    for (const name of namedFiles) {
+        possibleFiles.push(`bioms/${name}.png`);
+        possibleFiles.push(`bioms/${name}.jpg`);
+        possibleFiles.push(`bioms/${name}.webp`);
+    }
+    
+    let loadedCount = 0;
+    let totalToLoad = possibleFiles.length;
+    biomImages = new Array(totalToLoad);
+    biomFileNames = new Array(totalToLoad);
+    
+    function checkComplete() {
+        loadedCount++;
+        const percent = Math.floor((loadedCount / totalToLoad) * 100);
+        updateBiomLoadingMessage(percent);
         
-        if (!firstBiomLoaded && img && img.complete && img.naturalWidth > 0) {
-            firstBiomLoaded = true;
-            currentBiom = img;
-            console.log(`Первый биом загружен: ${file}`);
-        }
-        
-        if (loadedCountTemp >= biomTotalCount) {
+        if (loadedCount >= totalToLoad) {
+            const validCount = biomFileNames.filter(f => f !== null).length;
+            console.log(`Загружено биомов: ${validCount} шт.`);
             biomLoaded = true;
+            selectRandomBiom();
         }
     }
     
-    for (let i = 1; i <= biomTotalCount; i++) {
-        const index = i - 1;
-        const file = `bioms/biom${i}.png`;
+    possibleFiles.forEach((file, index) => {
         const img = new Image();
         img.onload = () => {
-            onBiomLoaded(index, file, img);
+            biomImages[index] = img;
+            biomFileNames[index] = file;
+            checkComplete();
         };
         img.onerror = () => {
-            const jpgFile = `bioms/biom${i}.jpg`;
-            const jpgImg = new Image();
-            jpgImg.onload = () => {
-                onBiomLoaded(index, jpgFile, jpgImg);
-            };
-            jpgImg.onerror = () => {
-                loadedCountTemp++;
-                biomLoadedCount = loadedCountTemp;
-                updateBiomLoadingMessage();
-                if (loadedCountTemp >= biomTotalCount && !firstBiomLoaded && BUILTIN_BIOMS.length > 0) {
-                    currentBiom = BUILTIN_BIOMS[0];
-                    firstBiomLoaded = true;
-                }
-            };
-            jpgImg.src = jpgFile;
+            biomImages[index] = null;
+            biomFileNames[index] = null;
+            checkComplete();
         };
         img.src = file;
-    }
+    });
 }
 
-function changeBiom() {
+function selectRandomBiom() {
     const validIndices = [];
     for (let i = 0; i < biomImages.length; i++) {
         if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
@@ -275,6 +265,318 @@ function changeBiom() {
     if (validIndices.length > 0) {
         const randomIndex = validIndices[Math.floor(Math.random() * validIndices.length)];
         currentBiom = biomImages[randomIndex];
+    } else {
+        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
+        currentBiom = randomBiom;
+    }
+}
+
+function changeBiom() {
+    if (!biomLoaded && biomLoadingStarted) {
+        return;
+    }
+    
+    const validIndices = [];
+    for (let i = 0; i < biomImages.length; i++) {
+        if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
+            validIndices.push(i);
+        }
+    }
+    
+    if (validIndices.length > 0) {
+        const randomIndex = validIndices[Math.floor(Math.random() * validIndices.length)];
+        currentBiom = biomImages[randomIndex];
+    } else if (BUILTIN_BIOMS.length > 0) {
+        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
+        currentBiom = randomBiom;
+    }
+}
+
+// ==================== ВРАГ ВИХРЬ (летает, притягивает игрока) ====================
+class WhirlwindEnemy {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.originalY = y;
+        this.width = 45;
+        this.height = 45;
+        this.color = '#00aaff';
+        this.speed = 1.2;
+        this.direction = Math.random() > 0.5 ? 1 : -1;
+        this.health = 8;
+        this.maxHealth = 8;
+        this.active = true;
+        this.suckStrength = 2.8;
+        this.rotation = 0;
+        this.floatPhase = Math.random() * Math.PI * 2;
+        this.floatAmplitude = 25;
+        this.floatSpeed = 0.05;
+        this.chargeCooldown = 0;
+        this.isCharging = false;
+    }
+    
+    update() {
+        if (!this.active || !player) return;
+        
+        this.rotation += 0.1;
+        this.floatPhase += this.floatSpeed;
+        
+        // Парение в воздухе
+        this.y = this.originalY + Math.sin(this.floatPhase) * this.floatAmplitude;
+        
+        // Движение в стороны
+        this.x += this.speed * this.direction;
+        if (this.x < cameraX - 100 || this.x > cameraX + canvas.width + 100) {
+            this.direction *= -1;
+        }
+        
+        // Заряд на игрока
+        if (!this.isCharging) {
+            this.chargeCooldown--;
+            if (this.chargeCooldown <= 0 && player) {
+                const dx = player.x - this.x;
+                const dy = player.y - this.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist < 350) {
+                    this.isCharging = true;
+                    this.chargeDirection = dx > 0 ? 1 : -1;
+                    this.chargeCooldown = 120 + Math.random() * 60;
+                }
+            }
+        } else {
+            this.x += 7 * this.chargeDirection;
+            if (player) this.y += (player.y - this.y) * 0.1;
+            if (Math.abs(player.x - this.x) < 50 || this.x < cameraX - 100 || this.x > cameraX + canvas.width + 100) {
+                this.isCharging = false;
+            }
+        }
+        
+        // Притягивание игрока (даже когда не в заряде)
+        const dx = this.x + this.width / 2 - (player.x + player.width / 2);
+        const dy = this.y + this.height / 2 - (player.y + player.height / 2);
+        const dist = Math.hypot(dx, dy);
+        
+        if (dist < 280 && dist > 30 && !this.isCharging) {
+            const angle = Math.atan2(dy, dx);
+            const force = this.suckStrength * (1 - Math.min(1, dist / 280));
+            player.velX -= Math.cos(angle) * force;
+            player.velY -= Math.sin(angle) * force;
+        }
+    }
+    
+    takeDamage(amount = 1) {
+        this.health -= amount;
+        if (this.health <= 0) {
+            this.destroy();
+            return true;
+        }
+        return false;
+    }
+    
+    destroy() {
+        this.active = false;
+        addScore(250 * comboMultiplier);
+        updateCombo();
+        AudioSys.collect();
+        for (let i = 0; i < 35; i++) {
+            particlePool.acquire(this.x + this.width / 2, this.y + this.height / 2, '#00aaff');
+        }
+        if (Math.random() < 0.4) {
+            coins.push({ x: this.x + this.width / 2, y: this.y + this.height / 2, size: 12, color: '#FFDE7D', bounce: 0 });
+        }
+    }
+    
+    draw(ctx) {
+        if (!this.active) return;
+        const drawX = this.x - cameraX;
+        
+        // Основной круг
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(drawX + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Спираль вихря (детали)
+        ctx.fillStyle = '#ffffff';
+        for (let i = 0; i < 3; i++) {
+            const angle = this.rotation + i * Math.PI * 2 / 3;
+            const radius = 14;
+            const px = drawX + this.width / 2 + Math.cos(angle) * radius;
+            const py = this.y + this.height / 2 + Math.sin(angle) * radius;
+            ctx.beginPath();
+            ctx.arc(px, py, 6, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Внешние "крылья" вихря
+        ctx.fillStyle = '#88ccff';
+        for (let i = 0; i < 4; i++) {
+            const angle = this.rotation + i * Math.PI * 2 / 4;
+            const radius = 20;
+            const px = drawX + this.width / 2 + Math.cos(angle) * radius;
+            const py = this.y + this.height / 2 + Math.sin(angle) * radius;
+            ctx.beginPath();
+            ctx.arc(px, py, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Глаза
+        ctx.fillStyle = '#000';
+        ctx.fillRect(drawX + 14, this.y + 15, 7, 7);
+        ctx.fillRect(drawX + 24, this.y + 15, 7, 7);
+        
+        // Рот
+        ctx.fillStyle = '#000';
+        ctx.fillRect(drawX + 16, this.y + 30, 13, 4);
+        
+        // Эффект заряда
+        if (this.isCharging) {
+            ctx.fillStyle = '#ff0000';
+            for (let i = 0; i < 3; i++) {
+                ctx.beginPath();
+                ctx.arc(drawX + this.width / 2, this.y - 10 - i * 6, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Полоска здоровья
+        if (this.health < this.maxHealth) {
+            ctx.fillStyle = '#4af626';
+            ctx.fillRect(drawX, this.y - 8, (this.width * this.health) / this.maxHealth, 4);
+        }
+    }
+}
+
+// ==================== ВРАГ БОМЖ (лава на платформе) ====================
+class BumEnemy {
+    constructor(x, y, platform) {
+        this.x = x;
+        this.y = y;
+        this.width = 50;
+        this.height = 55;
+        this.color = '#8B4513';
+        this.health = 5;
+        this.maxHealth = 5;
+        this.active = true;
+        this.lavaPlatform = platform;
+        this.lavaDamageTimer = 0;
+        this.beardPhase = 0;
+    }
+    
+    update() {
+        if (!this.active || !player) return;
+        
+        this.beardPhase += 0.05;
+        
+        // Лава наносит урон каждую секунду
+        this.lavaDamageTimer++;
+        if (this.lavaDamageTimer >= 60 && this.lavaPlatform) {
+            if (player.x + player.width > this.lavaPlatform.x && player.x < this.lavaPlatform.x + this.lavaPlatform.width) {
+                if (player.y + player.height > this.lavaPlatform.y && player.y < this.lavaPlatform.y + this.lavaPlatform.height) {
+                    const damage = Math.ceil(maxHealth * 0.25);
+                    player.takeDamage(damage, (player.x < this.x ? -8 : 8), -6, '#ff6600');
+                    for (let i = 0; i < 12; i++) {
+                        particlePool.acquire(player.x + player.width / 2, player.y + player.height - 5, '#ff4400');
+                    }
+                }
+            }
+            this.lavaDamageTimer = 0;
+        }
+    }
+    
+    takeDamage(amount = 1) {
+        this.health -= amount;
+        if (this.health <= 0) {
+            this.destroy();
+            return true;
+        }
+        return false;
+    }
+    
+    destroy() {
+        this.active = false;
+        addScore(500 * comboMultiplier);
+        updateCombo();
+        AudioSys.bossDefeat();
+        for (let i = 0; i < 50; i++) {
+            particlePool.acquire(this.x + this.width / 2, this.y + this.height / 2, '#ff8800');
+        }
+        
+        // Даём ключи
+        for (let i = 0; i < 3; i++) {
+            levelKeys.push({
+                x: this.x + this.width / 2 - 15 + i * 20,
+                y: this.y + this.height / 2,
+                size: 25,
+                collected: false,
+                floatOffset: 0
+            });
+        }
+    }
+    
+    draw(ctx) {
+        if (!this.active) return;
+        const drawX = this.x - cameraX;
+        
+        // Тело
+        ctx.fillStyle = this.color;
+        ctx.fillRect(drawX, this.y, this.width, this.height);
+        
+        // Борода
+        ctx.fillStyle = '#cccccc';
+        for (let i = 0; i < 5; i++) {
+            const offset = Math.sin(this.beardPhase + i) * 2;
+            ctx.fillRect(drawX + 8 + i * 8, this.y + 38 + offset, 6, 12);
+        }
+        
+        // Лицо
+        ctx.fillStyle = '#DEB887';
+        ctx.fillRect(drawX + 10, this.y + 15, 30, 25);
+        
+        // Глаза
+        ctx.fillStyle = '#000';
+        ctx.fillRect(drawX + 15, this.y + 22, 7, 7);
+        ctx.fillRect(drawX + 28, this.y + 22, 7, 7);
+        
+        // Нос
+        ctx.fillStyle = '#aa6644';
+        ctx.fillRect(drawX + 23, this.y + 30, 5, 8);
+        
+        // Рот
+        ctx.fillStyle = '#664422';
+        ctx.fillRect(drawX + 18, this.y + 42, 15, 4);
+        
+        // Шапка
+        ctx.fillStyle = '#556b2f';
+        ctx.fillRect(drawX + 5, this.y - 5, 40, 10);
+        ctx.fillRect(drawX + 15, this.y - 12, 20, 10);
+        
+        // Детали на шапке
+        ctx.fillStyle = '#ffcc00';
+        ctx.fillRect(drawX + 23, this.y - 8, 4, 4);
+        
+        // Лава на платформе
+        if (this.lavaPlatform) {
+            ctx.fillStyle = '#ff4400aa';
+            ctx.fillRect(this.lavaPlatform.x - cameraX, this.lavaPlatform.y - 5, this.lavaPlatform.width, 6);
+            ctx.fillStyle = '#ff8800aa';
+            for (let i = 0; i < this.lavaPlatform.width; i += 8) {
+                ctx.fillRect(this.lavaPlatform.x - cameraX + i, this.lavaPlatform.y - 7 + Math.sin(Date.now() / 100 + i) * 3, 5, 5);
+            }
+            // Пузырьки лавы
+            ctx.fillStyle = '#ffaa00';
+            for (let i = 0; i < 5; i++) {
+                ctx.beginPath();
+                ctx.arc(this.lavaPlatform.x - cameraX + 10 + i * 15, this.lavaPlatform.y - 4 + Math.sin(Date.now() / 200 + i) * 2, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Полоска здоровья
+        if (this.health < this.maxHealth) {
+            ctx.fillStyle = '#4af626';
+            ctx.fillRect(drawX, this.y - 8, (this.width * this.health) / this.maxHealth, 4);
+        }
     }
 }
 
@@ -1359,215 +1661,6 @@ class Player {
     }
 }
 
-// ==================== КЛАСС ВИХРЬ (притягивает игрока) ====================
-class WhirlwindEnemy {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.width = 45;
-        this.height = 45;
-        this.color = '#00aaff';
-        this.speed = 0.8;
-        this.direction = Math.random() > 0.5 ? 1 : -1;
-        this.health = 8;
-        this.maxHealth = 8;
-        this.active = true;
-        this.suckStrength = 2.5;
-        this.rotation = 0;
-        this.startX = x;
-        this.floatPhase = Math.random() * Math.PI * 2;
-    }
-    
-    update() {
-        if (!this.active || !player) return;
-        
-        this.rotation += 0.1;
-        this.floatPhase += 0.05;
-        this.y += Math.sin(this.floatPhase) * 1;
-        
-        this.x += this.speed * this.direction;
-        if (Math.abs(this.x - this.startX) > 200) this.direction *= -1;
-        
-        this.y += 0.8;
-        for (let platform of platforms) {
-            if (this.x < platform.x + platform.width && this.x + this.width > platform.x &&
-                this.y + this.height > platform.y && this.y + this.height < platform.y + 30) {
-                this.y = platform.y - this.height;
-            }
-        }
-        
-        const dx = this.x + this.width / 2 - (player.x + player.width / 2);
-        const dy = this.y + this.height / 2 - (player.y + player.height / 2);
-        const dist = Math.hypot(dx, dy);
-        
-        if (dist < 300 && dist > 25) {
-            const angle = Math.atan2(dy, dx);
-            const force = this.suckStrength * (1 - Math.min(1, dist / 300));
-            player.velX -= Math.cos(angle) * force;
-            player.velY -= Math.sin(angle) * force;
-        }
-    }
-    
-    takeDamage(amount = 1) {
-        this.health -= amount;
-        if (this.health <= 0) {
-            this.destroy();
-            return true;
-        }
-        return false;
-    }
-    
-    destroy() {
-        this.active = false;
-        addScore(250 * comboMultiplier);
-        updateCombo();
-        AudioSys.collect();
-        for (let i = 0; i < 30; i++) particlePool.acquire(this.x + this.width / 2, this.y + this.height / 2, '#00aaff');
-        if (Math.random() < 0.4) coins.push({ x: this.x + this.width / 2, y: this.y + this.height / 2, size: 12, color: '#FFDE7D', bounce: 0 });
-    }
-    
-    draw(ctx) {
-        if (!this.active) return;
-        const drawX = this.x - cameraX;
-        
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.arc(drawX + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.fillStyle = '#ffffff';
-        for (let i = 0; i < 3; i++) {
-            const angle = this.rotation + i * Math.PI * 2 / 3;
-            const radius = 12;
-            const px = drawX + this.width / 2 + Math.cos(angle) * radius;
-            const py = this.y + this.height / 2 + Math.sin(angle) * radius;
-            ctx.beginPath();
-            ctx.arc(px, py, 5, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        
-        ctx.fillStyle = '#000';
-        ctx.fillRect(drawX + 12, this.y + 15, 8, 8);
-        ctx.fillRect(drawX + 25, this.y + 15, 8, 8);
-        ctx.fillStyle = '#000';
-        ctx.fillRect(drawX + 15, this.y + 30, 15, 4);
-        
-        if (this.health < this.maxHealth) {
-            ctx.fillStyle = '#4af626';
-            ctx.fillRect(drawX, this.y - 8, (this.width * this.health) / this.maxHealth, 4);
-        }
-    }
-}
-
-// ==================== КЛАСС БОМЖ (лава на платформе) ====================
-class BumEnemy {
-    constructor(x, y, platform) {
-        this.x = x;
-        this.y = y;
-        this.width = 50;
-        this.height = 55;
-        this.color = '#8B4513';
-        this.health = 5;
-        this.maxHealth = 5;
-        this.active = true;
-        this.lavaPlatform = platform;
-        this.lavaDamageTimer = 0;
-        this.beardPhase = 0;
-    }
-    
-    update() {
-        if (!this.active || !player) return;
-        
-        this.beardPhase += 0.05;
-        
-        this.lavaDamageTimer++;
-        if (this.lavaDamageTimer >= 60 && this.lavaPlatform) {
-            if (player.x + player.width > this.lavaPlatform.x && player.x < this.lavaPlatform.x + this.lavaPlatform.width) {
-                if (player.y + player.height > this.lavaPlatform.y && player.y < this.lavaPlatform.y + this.lavaPlatform.height) {
-                    const damage = Math.ceil(maxHealth * 0.25);
-                    player.takeDamage(damage, (player.x < this.x ? -8 : 8), -6, '#ff6600');
-                    for (let i = 0; i < 10; i++) {
-                        particlePool.acquire(player.x + player.width / 2, player.y + player.height - 5, '#ff4400');
-                    }
-                }
-            }
-            this.lavaDamageTimer = 0;
-        }
-    }
-    
-    takeDamage(amount = 1) {
-        this.health -= amount;
-        if (this.health <= 0) {
-            this.destroy();
-            return true;
-        }
-        return false;
-    }
-    
-    destroy() {
-        this.active = false;
-        addScore(500 * comboMultiplier);
-        updateCombo();
-        AudioSys.bossDefeat();
-        for (let i = 0; i < 50; i++) particlePool.acquire(this.x + this.width / 2, this.y + this.height / 2, '#ff8800');
-        
-        for (let i = 0; i < 3; i++) {
-            levelKeys.push({
-                x: this.x + this.width / 2 - 15 + i * 20,
-                y: this.y + this.height / 2,
-                size: 25,
-                collected: false,
-                floatOffset: 0
-            });
-        }
-    }
-    
-    draw(ctx) {
-        if (!this.active) return;
-        const drawX = this.x - cameraX;
-        
-        ctx.fillStyle = this.color;
-        ctx.fillRect(drawX, this.y, this.width, this.height);
-        
-        ctx.fillStyle = '#cccccc';
-        for (let i = 0; i < 5; i++) {
-            const offset = Math.sin(this.beardPhase + i) * 2;
-            ctx.fillRect(drawX + 8 + i * 8, this.y + 35 + offset, 6, 12);
-        }
-        
-        ctx.fillStyle = '#DEB887';
-        ctx.fillRect(drawX + 10, this.y + 15, 30, 25);
-        
-        ctx.fillStyle = '#000';
-        ctx.fillRect(drawX + 15, this.y + 22, 7, 7);
-        ctx.fillRect(drawX + 28, this.y + 22, 7, 7);
-        
-        ctx.fillStyle = '#aa6644';
-        ctx.fillRect(drawX + 23, this.y + 30, 5, 8);
-        
-        ctx.fillStyle = '#664422';
-        ctx.fillRect(drawX + 18, this.y + 40, 15, 4);
-        
-        ctx.fillStyle = '#556b2f';
-        ctx.fillRect(drawX + 5, this.y - 5, 40, 10);
-        ctx.fillRect(drawX + 15, this.y - 12, 20, 10);
-        
-        if (this.lavaPlatform) {
-            ctx.fillStyle = '#ff4400aa';
-            ctx.fillRect(this.lavaPlatform.x - cameraX, this.lavaPlatform.y - 5, this.lavaPlatform.width, 6);
-            ctx.fillStyle = '#ff8800aa';
-            for (let i = 0; i < this.lavaPlatform.width; i += 8) {
-                ctx.fillRect(this.lavaPlatform.x - cameraX + i, this.lavaPlatform.y - 7 + Math.sin(Date.now() / 100 + i) * 3, 5, 5);
-            }
-        }
-        
-        if (this.health < this.maxHealth) {
-            ctx.fillStyle = '#4af626';
-            ctx.fillRect(drawX, this.y - 8, (this.width * this.health) / this.maxHealth, 4);
-        }
-    }
-}
-
 // ==================== КЛАСС BOSS ====================
 class Boss { 
     constructor(x,y) {
@@ -2005,11 +2098,11 @@ function generateLevel(level){
         if(bhb) bhb.style.display='none'; 
     } 
     
-    // Вихри (с 1 уровня)
+    // Вихри (летают в воздухе)
     for(let i=0;i<Math.floor(level/3)+1;i++){
-        const pi=Math.floor(Math.random()*(platforms.length-5))+2;
-        const p=platforms[pi];
-        if(p) specialEnemies.push(new WhirlwindEnemy(p.x+p.width/2-22, p.y-45));
+        const randomX = 300 + Math.random() * (levelWidth - 600);
+        const randomY = 100 + Math.random() * 200;
+        specialEnemies.push(new WhirlwindEnemy(randomX, randomY));
     }
     
     for(let i=0;i<flyingEnemyCount;i++)flyingEnemies.push(new FlyingEnemy(300+Math.random()*(levelWidth-600),100+Math.random()*200)); 
@@ -2332,6 +2425,7 @@ async function initGame(){
     resizeCanvas();
     AudioSys.init();
     await bossTextures.load();
+    // НЕ ждём загрузку биомов - запускаем в фоне
     startAsyncBiomLoading();
     loadAuraImages();
     particlePool = new ObjectPool((x,y,c) => new Particle(x,y,c), CONFIG.particles.maxCount);
