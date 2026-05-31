@@ -1,4 +1,4 @@
-// game.js - QUBES FULL VERSION (FINAL)
+// game.js - QUBES FULL VERSION (FIXED LEVEL TRANSITION)
 const CONFIG = {
     player: { width: 40, height: 40, speed: 6, jumpPower: 16, gravity: 0.8, friction: 0.85, dashSpeed: 20, dashDuration: 12, dashCooldown: 45, maxDashes: 2, doubleJump: true },
     melee: { radius: 95, cooldownMax: 18, damage: 1 },
@@ -79,7 +79,8 @@ let roundCoins = 0, roundDamage = 0;
 let lastKaleidoscopeColor = null;
 let lastKaleidoscopeDate = null;
 let frameCount = 0;
-let isLevelLoading = false;    // Флаг для предотвращения конфликтов при переходе
+let isLevelTransition = false;
+let transitionTimer = null;
 
 let batidaoImage = null;
 let cucumberImage = null;
@@ -123,22 +124,13 @@ const platformTextures = [ {color: '#FF2E63', pattern: 'stripes'}, {color: '#08D
 const enemyColors = ['#FF2E63', '#FFDE7D', '#6A2C70', '#08D9D6', '#AA00FF'];
 const flyingEnemyColors = ['#FF00FF', '#00FFFF', '#FFFF00', '#FF6600'];
 
-// ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 function safeTimeout(fn, delay) {
     const id = setTimeout(() => {
-        if (gameRunning && !isLevelLoading) fn();
+        if (!isLevelTransition) fn();
         const index = activeTimeouts.indexOf(id);
         if (index > -1) activeTimeouts.splice(index, 1);
     }, delay);
     activeTimeouts.push(id);
-    return id;
-}
-
-function safeInterval(fn, delay) {
-    const id = setInterval(() => {
-        if (gameRunning && !isLevelLoading) fn();
-    }, delay);
-    activeIntervals.push(id);
     return id;
 }
 
@@ -1785,7 +1777,7 @@ function drawPowerUps(){for(const p of powerUps){ctx.fillStyle=p.color;ctx.begin
 
 // ==================== ОСНОВНОЙ ЦИКЛ ====================
 function gameLoop(){
-    if(!gameRunning || isLevelLoading) return;
+    if(!gameRunning || isLevelTransition) return;
     frameCount++;
     player.update(keys);
     updateCamera();
@@ -1824,8 +1816,8 @@ function gameLoop(){
 }
 
 function completeLevel(){
-    if(isLevelLoading) return;
-    isLevelLoading = true;
+    if(isLevelTransition) return;
+    isLevelTransition = true;
     gameRunning = false;
     if(gameLoopId){ cancelAnimationFrame(gameLoopId); gameLoopId = null; }
     AudioSys.levelComplete();
@@ -1848,7 +1840,7 @@ function completeLevel(){
     const lcDiv = document.getElementById('levelComplete');
     if(lcDiv) lcDiv.style.display = 'flex';
     showEloChange(eloResult.change);
-    // очистка
+    
     if(particlePool) particlePool.releaseAll();
     platforms = [];
     enemies = [];
@@ -1858,7 +1850,9 @@ function completeLevel(){
     levelKeys = [];
     boss = null;
     if(activeAuraEffect){ activeAuraEffect.remove(); activeAuraEffect = null; }
-    safeTimeout(()=>{
+    
+    if(transitionTimer) clearTimeout(transitionTimer);
+    transitionTimer = setTimeout(()=>{
         const lcDiv2 = document.getElementById('levelComplete');
         if(lcDiv2) lcDiv2.style.display = 'none';
         currentLevel++;
@@ -1876,15 +1870,17 @@ function completeLevel(){
         updateDashIndicator();
         updateEloDisplay();
         gameRunning = true;
-        isLevelLoading = false;
+        isLevelTransition = false;
+        transitionTimer = null;
         gameLoop();
-    }, 2000);
+    }, 2500);
 }
 
 function gameOver(){
     gameRunning = false;
-    isLevelLoading = false;
+    isLevelTransition = false;
     if(gameLoopId){ cancelAnimationFrame(gameLoopId); gameLoopId = null; }
+    if(transitionTimer){ clearTimeout(transitionTimer); transitionTimer = null; }
     clearAllTimeoutsAndIntervals();
     AudioSys.gameOver();
     document.getElementById('finalScore').textContent = score;
@@ -1896,9 +1892,10 @@ function gameOver(){
 }
 
 function restartGame(){
-    if(isLevelLoading) return;
-    isLevelLoading = true;
+    if(isLevelTransition) return;
+    isLevelTransition = true;
     if(gameLoopId){ cancelAnimationFrame(gameLoopId); gameLoopId = null; }
+    if(transitionTimer){ clearTimeout(transitionTimer); transitionTimer = null; }
     clearAllTimeoutsAndIntervals();
     if(activeAuraEffect){ activeAuraEffect.remove(); activeAuraEffect = null; }
     if(particlePool) particlePool.releaseAll();
@@ -1927,7 +1924,7 @@ function restartGame(){
     const bhb = document.getElementById('bossHealthBar');
     if(bhb) bhb.style.display = 'none';
     gameRunning = true;
-    isLevelLoading = false;
+    isLevelTransition = false;
     gameLoop();
 }
 
