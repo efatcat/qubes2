@@ -1,4 +1,4 @@
-// game.js - QUBES FULL VERSION (FIXED LEVEL TRANSITION)
+// game.js - QUBES FULL VERSION (LEVEL TRANSITION FIXED)
 const CONFIG = {
     player: { width: 40, height: 40, speed: 6, jumpPower: 16, gravity: 0.8, friction: 0.85, dashSpeed: 20, dashDuration: 12, dashCooldown: 45, maxDashes: 2, doubleJump: true },
     melee: { radius: 95, cooldownMax: 18, damage: 1 },
@@ -79,8 +79,6 @@ let roundCoins = 0, roundDamage = 0;
 let lastKaleidoscopeColor = null;
 let lastKaleidoscopeDate = null;
 let frameCount = 0;
-let isLevelTransition = false;
-let transitionTimer = null;
 
 let batidaoImage = null;
 let cucumberImage = null;
@@ -114,7 +112,7 @@ const ctx = canvas.getContext('2d');
 
 let particlePool;
 let platforms = [], enemies = [], flyingEnemies = [], coins = [], powerUps = [];
-let player, cameraX = 0, keys = {}, gameRunning = true, levelWidth = 0;
+let player, cameraX = 0, keys = {}, gameRunning = true, levelWidth = 2500;
 let currentLevel = 1, score = 0, playerHealth = 100, maxHealth = 100;
 let comboCount = 1, maxCombo = 1, comboTimer = 0, comboMultiplier = 1;
 let screenShake = 0, shakeIntensity = 0, lastCheckpointX = 0, boss = null, bossesDefeated = 0;
@@ -125,16 +123,12 @@ const enemyColors = ['#FF2E63', '#FFDE7D', '#6A2C70', '#08D9D6', '#AA00FF'];
 const flyingEnemyColors = ['#FF00FF', '#00FFFF', '#FFFF00', '#FF6600'];
 
 function safeTimeout(fn, delay) {
-    const id = setTimeout(() => {
-        if (!isLevelTransition) fn();
-        const index = activeTimeouts.indexOf(id);
-        if (index > -1) activeTimeouts.splice(index, 1);
-    }, delay);
+    const id = setTimeout(() => { fn(); const idx = activeTimeouts.indexOf(id); if (idx > -1) activeTimeouts.splice(idx, 1); }, delay);
     activeTimeouts.push(id);
     return id;
 }
 
-function clearAllTimeoutsAndIntervals() {
+function clearAllTimeouts() {
     for (const id of activeTimeouts) clearTimeout(id);
     for (const id of activeIntervals) clearInterval(id);
     activeTimeouts = [];
@@ -168,70 +162,20 @@ function getKaleidoscopeColor() {
 }
 
 // ==================== СИСТЕМА БИОМОВ ====================
-function showBiomLoadingMessage() {
-    if (document.getElementById('biomLoadingMsg')) return;
-    const msg = document.createElement('div');
-    msg.id = 'biomLoadingMsg';
-    msg.style.position = 'fixed';
-    msg.style.bottom = '20px';
-    msg.style.left = '20px';
-    msg.style.backgroundColor = 'rgba(0,0,0,0.7)';
-    msg.style.color = '#FFDE7D';
-    msg.style.padding = '8px 15px';
-    msg.style.borderRadius = '20px';
-    msg.style.fontSize = '12px';
-    msg.style.fontFamily = 'Unbounded, monospace';
-    msg.style.zIndex = '1000';
-    msg.style.backdropFilter = 'blur(5px)';
-    msg.innerHTML = '🌄 Загрузка биомов... <span id="biomProgress">0</span>%';
-    document.body.appendChild(msg);
-}
-
-function updateBiomLoadingMessage(percent) {
-    const msg = document.getElementById('biomLoadingMsg');
-    const progressSpan = document.getElementById('biomProgress');
-    if (msg && progressSpan) {
-        progressSpan.textContent = percent;
-        if (percent >= 100) {
-            msg.style.backgroundColor = 'rgba(74,246,38,0.2)';
-            msg.style.color = '#4af626';
-            msg.innerHTML = '✅ Биомы загружены!';
-            safeTimeout(() => {
-                if (msg) msg.style.opacity = '0';
-                safeTimeout(() => { if (msg && msg.remove) msg.remove(); }, 1000);
-            }, 2000);
-        }
-    }
-}
-
 function startAsyncBiomLoading() {
     if (biomLoadingStarted) return;
     biomLoadingStarted = true;
-    showBiomLoadingMessage();
-    
     const possibleFiles = [];
-    for (let i = 1; i <= 50; i++) {
+    for (let i = 1; i <= 30; i++) {
         possibleFiles.push(`bioms/biom${i}.png`);
         possibleFiles.push(`bioms/biom${i}.jpg`);
     }
-    const namedFiles = ['forest', 'cave', 'mountain', 'volcano', 'ice', 'swamp', 
-        'jungle', 'ruins', 'temple', 'waterfall', 'cliffs', 'valley',
-        'desert', 'snow', 'lava', 'abyss', 'sky', 'ocean'];
-    for (const name of namedFiles) {
-        possibleFiles.push(`bioms/${name}.png`);
-        possibleFiles.push(`bioms/${name}.jpg`);
-        possibleFiles.push(`bioms/${name}.webp`);
-    }
-    
     let loadedCount = 0;
     let totalToLoad = possibleFiles.length;
     biomImages = new Array(totalToLoad);
-    biomFileNames = new Array(totalToLoad);
     
     function checkComplete() {
         loadedCount++;
-        const percent = Math.floor((loadedCount / totalToLoad) * 100);
-        updateBiomLoadingMessage(percent);
         if (loadedCount >= totalToLoad) {
             biomLoaded = true;
             selectRandomBiom();
@@ -240,58 +184,29 @@ function startAsyncBiomLoading() {
     
     for (let i = 0; i < possibleFiles.length; i++) {
         const img = new Image();
-        img.onload = () => {
-            biomImages[i] = img;
-            biomFileNames[i] = possibleFiles[i];
-            checkComplete();
-        };
-        img.onerror = () => {
-            biomImages[i] = null;
-            biomFileNames[i] = null;
-            checkComplete();
-        };
+        img.onload = () => { biomImages[i] = img; checkComplete(); };
+        img.onerror = () => { biomImages[i] = null; checkComplete(); };
         img.src = possibleFiles[i];
     }
     
-    safeTimeout(() => {
-        if (!biomLoaded) {
-            biomLoaded = true;
-            selectRandomBiom();
-            const msg = document.getElementById('biomLoadingMsg');
-            if (msg && msg.remove) msg.remove();
-        }
-    }, 5000);
+    safeTimeout(() => { if (!biomLoaded) { biomLoaded = true; selectRandomBiom(); } }, 3000);
 }
 
 function selectRandomBiom() {
-    const validIndices = [];
-    for (let i = 0; i < biomImages.length; i++) {
-        if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
-            validIndices.push(i);
-        }
-    }
-    if (validIndices.length > 0) {
-        const randomIndex = validIndices[Math.floor(Math.random() * validIndices.length)];
-        currentBiom = biomImages[randomIndex];
+    const validImages = biomImages.filter(img => img !== null && img.complete && img.naturalWidth > 0);
+    if (validImages.length > 0) {
+        currentBiom = validImages[Math.floor(Math.random() * validImages.length)];
     } else {
-        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
-        currentBiom = randomBiom;
+        currentBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
     }
 }
 
 function changeBiom() {
-    const validIndices = [];
-    for (let i = 0; i < biomImages.length; i++) {
-        if (biomImages[i] !== null && biomImages[i].complete && biomImages[i].naturalWidth > 0) {
-            validIndices.push(i);
-        }
-    }
-    if (validIndices.length > 0) {
-        const randomIndex = validIndices[Math.floor(Math.random() * validIndices.length)];
-        currentBiom = biomImages[randomIndex];
-    } else if (BUILTIN_BIOMS.length > 0) {
-        const randomBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
-        currentBiom = randomBiom;
+    const validImages = biomImages.filter(img => img !== null && img.complete && img.naturalWidth > 0);
+    if (validImages.length > 0) {
+        currentBiom = validImages[Math.floor(Math.random() * validImages.length)];
+    } else {
+        currentBiom = BUILTIN_BIOMS[Math.floor(Math.random() * BUILTIN_BIOMS.length)];
     }
 }
 
@@ -344,7 +259,6 @@ class ObjectPool {
     acquire(...args) { let obj = this.pool.pop(); if (!obj) obj = this.createFn(...args); obj.active = true; this.active.push(obj); return obj; }
     release(obj) { obj.active = false; const idx = this.active.indexOf(obj); if (idx > -1) this.active.splice(idx, 1); if (this.pool.length < this.maxSize) this.pool.push(obj); }
     releaseAll() { for (let obj of this.active) { obj.active = false; this.pool.push(obj); } this.active = []; }
-    get activeObjects() { return [...this.active]; }
 }
 
 // ==================== ТЕКСТУРЫ БОССОВ ====================
@@ -1163,120 +1077,6 @@ class Player {
     }
 }
 
-// ==================== КЛАСС БОСС ====================
-class Boss { 
-    constructor(x,y) {
-        this.x=x;this.y=y;this.width=80;this.height=80;
-        this.maxHealth=CONFIG.boss.health+Math.floor(currentLevel/5)*5;
-        this.health=this.maxHealth;
-        this.speed=CONFIG.boss.moveSpeed;
-        this.direction=1;
-        this.attackCooldown=0;
-        this.active=true;
-        this.texture=bossTextures.getRandomTexture(enemyColors);
-        this.phase=0;
-        this.movePhase=0;
-        this.shootPattern=0;
-        this.color=this.texture.type==='color'?this.texture.color:'#ff0000';
-    }
-    update() {
-        if(!this.active || !player) return;
-        this.movePhase+=0.02;
-        this.attackCooldown--;
-        if(Math.abs(this.x-player.x)>200){
-            this.x+=this.speed*this.direction;
-            if(this.x<cameraX+100||this.x>cameraX+canvas.width-100-this.width) this.direction*=-1;
-        }
-        this.y+=Math.sin(this.movePhase)*2;
-        if(this.attackCooldown<=0){
-            this.performAttack();
-            this.attackCooldown=CONFIG.boss.attackCooldown-(currentLevel*2);
-        }
-        if(player.checkCollision(this)){
-            player.takeDamage(CONFIG.boss.damage, this.x<player.x?15:-15, -10, '#ff0000');
-        }
-    }
-    performAttack() {
-        this.shootPattern=(this.shootPattern+1)%3;
-        const cx = this.x+this.width/2;
-        const cy = this.y+this.height/2;
-        switch(this.shootPattern){
-            case 0:
-                for(let i=0;i<15;i++) particlePool.acquire(cx+(Math.random()-0.5)*50, cy+(Math.random()-0.5)*50, '#ff0000');
-                break;
-            case 1:
-                for(let i=-1;i<=1;i++) for(let j=0;j<6;j++) particlePool.acquire(cx+i*30, cy+(Math.random()-0.5)*40, '#ff6600');
-                break;
-            case 2:
-                for(let i=0;i<10;i++) { const angle=(i/10)*Math.PI*2; particlePool.acquire(cx+Math.cos(angle)*40, cy+Math.sin(angle)*40, '#ff4400'); }
-                break;
-        }
-        for(let i=0;i<10;i++) particlePool.acquire(cx+(Math.random()-0.5)*60, cy+(Math.random()-0.5)*60, '#ff0000');
-    }
-    takeDamage(amount=1) {
-        this.health -= amount;
-        AudioSys.bossHit();
-        for(let i=0;i<10;i++) particlePool.acquire(this.x+Math.random()*this.width, this.y+Math.random()*this.height, '#ff0000');
-        if(this.health <= 0){ this.defeat(); return true; }
-        updateBossHealth();
-        return false;
-    }
-    defeat() {
-        this.active=false;
-        AudioSys.bossDefeat();
-        bossesDefeated++;
-        for(let i=0;i<50;i++) particlePool.acquire(this.x+this.width/2, this.y+this.height/2, this.color);
-        addScore(5000*comboMultiplier);
-        updateCombo();
-        document.getElementById('bossHealthBar').style.display='none';
-        if(Math.random()<0.8) powerUps.push({x:this.x+this.width/2, y:this.y+this.height/2, size:20, color:'#FF2E63', type:'health'});
-        if(Math.random()<0.5) powerUps.push({x:this.x+this.width/2+40, y:this.y+this.height/2, size:20, color:'#FFDE7D', type:'dash'});
-        shakeScreen(10);
-    }
-    draw(ctx) {
-        if(!this.active) return;
-        const drawX=this.x-cameraX;
-        ctx.shadowColor='#ff0000';
-        ctx.shadowBlur=30;
-        if(this.texture.type==='image'&&this.texture.image){
-            try{ ctx.drawImage(this.texture.image, drawX, this.y, this.width, this.height); }
-            catch(e){ ctx.fillStyle=this.color; ctx.fillRect(drawX, this.y, this.width, this.height); }
-        } else {
-            ctx.fillStyle=this.color;
-            ctx.fillRect(drawX, this.y, this.width, this.height);
-            for(let i=0;i<this.width;i+=20) for(let j=0;j<this.height;j+=20) if((i/20+j/20)%2===0) ctx.fillRect(drawX+i, this.y+j, 20,20);
-        }
-        ctx.shadowBlur=0;
-        ctx.fillStyle='#fff';
-        ctx.beginPath();
-        ctx.arc(drawX+25, this.y+30, 10, 0, Math.PI*2);
-        ctx.arc(drawX+55, this.y+30, 10, 0, Math.PI*2);
-        ctx.fill();
-        ctx.fillStyle='#000';
-        ctx.beginPath();
-        ctx.arc(drawX+25+(this.direction*3), this.y+30, 5, 0, Math.PI*2);
-        ctx.arc(drawX+55+(this.direction*3), this.y+30, 5, 0, Math.PI*2);
-        ctx.fill();
-        ctx.fillRect(drawX+20, this.y+55, 40, 10);
-        ctx.fillStyle='#ff6600';
-        ctx.beginPath();
-        ctx.moveTo(drawX+10, this.y+20);
-        ctx.lineTo(drawX, this.y);
-        ctx.lineTo(drawX+20, this.y+15);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(drawX+70, this.y+20);
-        ctx.lineTo(drawX+80, this.y);
-        ctx.lineTo(drawX+60, this.y+15);
-        ctx.fill();
-        if(this.health<this.maxHealth*0.3 && Math.floor(Date.now()/200)%2===0){
-            ctx.strokeStyle='#ff0000';
-            ctx.lineWidth=4;
-            ctx.strokeRect(drawX-5, this.y-5, this.width+10, this.height+10);
-        }
-    }
-}
-
 // ==================== КЛАСС ENEMY ====================
 class Enemy { 
     constructor(x,y,type=0){
@@ -1672,7 +1472,7 @@ function generateLevel(level){
     const platformCount=CONFIG.level.basePlatforms+Math.floor(level*CONFIG.level.platformGrowth); 
     const enemyCount=CONFIG.level.baseEnemies+Math.floor(level*CONFIG.level.enemyGrowth); 
     const flyingEnemyCount=Math.max(0,Math.floor(level/3)); 
-    levelWidth=CONFIG.level.baseWidth+(level-1)*CONFIG.level.widthGrowth; 
+    levelWidth = CONFIG.level.baseWidth + (level-1) * CONFIG.level.widthGrowth;
     platforms.push(new Platform(80,canvas.height-200,180,0)); 
     let lastX=100,lastY=canvas.height-250,direction=1; 
     for(let i=0;i<platformCount;i++){ 
@@ -1690,7 +1490,7 @@ function generateLevel(level){
     const keyPlat = platforms[Math.floor(Math.random() * (platforms.length - 3)) + 2];
     if(keyPlat) levelKeys.push({x: keyPlat.x + keyPlat.width/2 - 15, y: keyPlat.y - 45, size: 28, collected: false, floatOffset: 0});
     
-    const isBossLevel=level%5===0; 
+    const isBossLevel = level % 5 === 0; 
     if(isBossLevel){ 
         for(let i=0;i<Math.floor(enemyCount/2);i++){const pi=Math.floor(Math.random()*(platforms.length-5))+2;const p=platforms[pi]; if(p) enemies.push(new Enemy(p.x+p.width/2-20,p.y-40,Math.floor(Math.random()*3)));} 
         boss=new Boss(levelWidth-400,canvas.height-350);
@@ -1777,7 +1577,7 @@ function drawPowerUps(){for(const p of powerUps){ctx.fillStyle=p.color;ctx.begin
 
 // ==================== ОСНОВНОЙ ЦИКЛ ====================
 function gameLoop(){
-    if(!gameRunning || isLevelTransition) return;
+    if(!gameRunning) return;
     frameCount++;
     player.update(keys);
     updateCamera();
@@ -1787,10 +1587,12 @@ function gameLoop(){
     decayCombo();
     checkEnemyCollisions();
     checkCheckpoints();
+    
     for(let i=enemies.length-1;i>=0;i--) enemies[i].update();
     for(let i=flyingEnemies.length-1;i>=0;i--) flyingEnemies[i].update();
     if(boss) boss.update();
-    if(player.x>levelWidth-100 && (!boss || !boss.active)){
+    
+    if(player.x > levelWidth - 100 && (!boss || !boss.active)){
         completeLevel();
         return;
     }
@@ -1816,10 +1618,8 @@ function gameLoop(){
 }
 
 function completeLevel(){
-    if(isLevelTransition) return;
-    isLevelTransition = true;
+    if(gameLoopId) cancelAnimationFrame(gameLoopId);
     gameRunning = false;
-    if(gameLoopId){ cancelAnimationFrame(gameLoopId); gameLoopId = null; }
     AudioSys.levelComplete();
     changeBiom();
     addScore(1000*currentLevel);
@@ -1851,8 +1651,7 @@ function completeLevel(){
     boss = null;
     if(activeAuraEffect){ activeAuraEffect.remove(); activeAuraEffect = null; }
     
-    if(transitionTimer) clearTimeout(transitionTimer);
-    transitionTimer = setTimeout(()=>{
+    safeTimeout(()=>{
         const lcDiv2 = document.getElementById('levelComplete');
         if(lcDiv2) lcDiv2.style.display = 'none';
         currentLevel++;
@@ -1870,18 +1669,14 @@ function completeLevel(){
         updateDashIndicator();
         updateEloDisplay();
         gameRunning = true;
-        isLevelTransition = false;
-        transitionTimer = null;
         gameLoop();
     }, 2500);
 }
 
 function gameOver(){
     gameRunning = false;
-    isLevelTransition = false;
-    if(gameLoopId){ cancelAnimationFrame(gameLoopId); gameLoopId = null; }
-    if(transitionTimer){ clearTimeout(transitionTimer); transitionTimer = null; }
-    clearAllTimeoutsAndIntervals();
+    if(gameLoopId) cancelAnimationFrame(gameLoopId);
+    clearAllTimeouts();
     AudioSys.gameOver();
     document.getElementById('finalScore').textContent = score;
     document.getElementById('finalLevel').textContent = currentLevel-1;
@@ -1892,11 +1687,8 @@ function gameOver(){
 }
 
 function restartGame(){
-    if(isLevelTransition) return;
-    isLevelTransition = true;
-    if(gameLoopId){ cancelAnimationFrame(gameLoopId); gameLoopId = null; }
-    if(transitionTimer){ clearTimeout(transitionTimer); transitionTimer = null; }
-    clearAllTimeoutsAndIntervals();
+    if(gameLoopId) cancelAnimationFrame(gameLoopId);
+    clearAllTimeouts();
     if(activeAuraEffect){ activeAuraEffect.remove(); activeAuraEffect = null; }
     if(particlePool) particlePool.releaseAll();
     platforms = []; enemies = []; flyingEnemies = []; coins = []; powerUps = []; levelKeys = [];
@@ -1924,7 +1716,6 @@ function restartGame(){
     const bhb = document.getElementById('bossHealthBar');
     if(bhb) bhb.style.display = 'none';
     gameRunning = true;
-    isLevelTransition = false;
     gameLoop();
 }
 
