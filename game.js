@@ -1,19 +1,19 @@
-// game.js - QUBES FULL VERSION WITH WORKING VORTEX (PULL INWARDS)
+// game.js - QUBES FULL VERSION WITH FIXED LEVEL TRANSITION
 const CONFIG = {
     player: { width: 40, height: 40, speed: 6, jumpPower: 16, gravity: 0.8, friction: 0.85, dashSpeed: 20, dashDuration: 12, dashCooldown: 45, maxDashes: 2, doubleJump: true },
     melee: { radius: 95, cooldownMax: 18, damage: 1 },
     elo: { coinsMultiplier: 2, damageDivider: 5 },
     enemies: { 
-        baseHealth: { normal: 1, shooter: 2, patrol: 3, jumper: 1, flying: 2, vortex: 4 }, 
-        baseScore: { normal: 100, shooter: 120, patrol: 150, jumper: 110, flying: 200, vortex: 300 } 
+        baseHealth: { normal: 1, shooter: 2, patrol: 3, jumper: 1, flying: 2, vortex: 3 }, 
+        baseScore: { normal: 100, shooter: 120, patrol: 150, jumper: 110, flying: 200, vortex: 350 } 
     },
     boss: { health: 20, damage: 30, attackCooldown: 120, moveSpeed: 2 },
-    particles: { maxCount: 600, enabled: true },
+    particles: { maxCount: 400, enabled: true },
     audio: { enabled: true, volume: 0.4 },
     camera: { followSpeed: 0.1, playerOffset: 0.35 },
     level: { basePlatforms: 20, platformGrowth: 2, baseEnemies: 3, enemyGrowth: 1.2, baseWidth: 2500, widthGrowth: 400 },
     combat: { comboDecay: 180 },
-    vortex: { pullRadius: 220, pullStrength: 0.28, maxPullSpeed: 10, damageRadius: 40 }
+    vortex: { pullRadius: 320, pullStrength: 0.45, maxPullSpeed: 14, damageRadius: 45 }
 };
 
 // СКИНЫ
@@ -79,6 +79,7 @@ let roundCoins = 0, roundDamage = 0;
 let lastKaleidoscopeColor = null;
 let lastKaleidoscopeDate = null;
 let frameCount = 0;
+let isTransitioning = false;
 
 let batidaoImage = null;
 let cucumberImage = null;
@@ -86,6 +87,7 @@ let explosionGif = null;
 let activeAuraEffect = null;
 let gameLoopId = null;
 let activeTimeouts = [];
+let activeIntervals = [];
 
 // БИОМЫ
 let currentBiom = null;
@@ -123,7 +125,9 @@ const flyingEnemyColors = ['#FF00FF', '#00FFFF', '#FFFF00', '#FF6600'];
 
 function safeTimeout(fn, delay) {
     const id = setTimeout(() => {
-        fn();
+        if (gameRunning || isTransitioning) {
+            fn();
+        }
         const index = activeTimeouts.indexOf(id);
         if (index > -1) activeTimeouts.splice(index, 1);
     }, delay);
@@ -131,9 +135,21 @@ function safeTimeout(fn, delay) {
     return id;
 }
 
-function clearAllTimeouts() {
+function safeInterval(fn, delay) {
+    const id = setInterval(() => {
+        if (gameRunning || isTransitioning) {
+            fn();
+        }
+    }, delay);
+    activeIntervals.push(id);
+    return id;
+}
+
+function clearAllTimeoutsAndIntervals() {
     for (const id of activeTimeouts) clearTimeout(id);
+    for (const id of activeIntervals) clearInterval(id);
     activeTimeouts = [];
+    activeIntervals = [];
 }
 
 function resizeCanvas(){canvas.width=window.innerWidth;canvas.height=window.innerHeight;}
@@ -164,21 +180,23 @@ function getKaleidoscopeColor() {
 
 // ==================== СИСТЕМА БИОМОВ ====================
 function showBiomLoadingMessage() {
-    const msg = document.createElement('div');
-    msg.id = 'biomLoadingMsg';
-    msg.style.position = 'fixed';
-    msg.style.bottom = '20px';
-    msg.style.left = '20px';
-    msg.style.backgroundColor = 'rgba(0,0,0,0.7)';
-    msg.style.color = '#FFDE7D';
-    msg.style.padding = '8px 15px';
-    msg.style.borderRadius = '20px';
-    msg.style.fontSize = '12px';
-    msg.style.fontFamily = 'Unbounded, monospace';
-    msg.style.zIndex = '1000';
-    msg.style.backdropFilter = 'blur(5px)';
-    msg.innerHTML = '🌄 Загрузка биомов... <span id="biomProgress">0</span>%';
-    document.body.appendChild(msg);
+    const msg = document.getElementById('biomLoadingMsg');
+    if (msg) return;
+    const newMsg = document.createElement('div');
+    newMsg.id = 'biomLoadingMsg';
+    newMsg.style.position = 'fixed';
+    newMsg.style.bottom = '20px';
+    newMsg.style.left = '20px';
+    newMsg.style.backgroundColor = 'rgba(0,0,0,0.7)';
+    newMsg.style.color = '#FFDE7D';
+    newMsg.style.padding = '8px 15px';
+    newMsg.style.borderRadius = '20px';
+    newMsg.style.fontSize = '12px';
+    newMsg.style.fontFamily = 'Unbounded, monospace';
+    newMsg.style.zIndex = '1000';
+    newMsg.style.backdropFilter = 'blur(5px)';
+    newMsg.innerHTML = '🌄 Загрузка биомов... <span id="biomProgress">0</span>%';
+    document.body.appendChild(newMsg);
 }
 
 function updateBiomLoadingMessage(percent) {
@@ -193,7 +211,7 @@ function updateBiomLoadingMessage(percent) {
             safeTimeout(() => {
                 if (msg) msg.style.opacity = '0';
                 safeTimeout(() => {
-                    if (msg) msg.remove();
+                    if (msg && msg.remove) msg.remove();
                 }, 1000);
             }, 2000);
         }
@@ -237,7 +255,9 @@ function startAsyncBiomLoading() {
         }
     }
     
-    possibleFiles.forEach((file, index) => {
+    for (let i = 0; i < possibleFiles.length; i++) {
+        const file = possibleFiles[i];
+        const index = i;
         const img = new Image();
         img.onload = () => {
             biomImages[index] = img;
@@ -250,7 +270,16 @@ function startAsyncBiomLoading() {
             checkComplete();
         };
         img.src = file;
-    });
+    }
+    
+    safeTimeout(() => {
+        if (!biomLoaded) {
+            biomLoaded = true;
+            selectRandomBiom();
+            const msg = document.getElementById('biomLoadingMsg');
+            if (msg && msg.remove) msg.remove();
+        }
+    }, 5000);
 }
 
 function selectRandomBiom() {
@@ -319,7 +348,7 @@ const AudioSys = {
     chestOpen() { [300, 450, 600, 900].forEach((f, i) => safeTimeout(() => this.play(f, 0.15, 'square', 0.15), i * 80)); }
 };
 
-// ==================== ПУЛ ЧАСТИЦ ====================
+// ==================== ПУЛ ЧАСТИЦ (ОПТИМИЗИРОВАННЫЙ) ====================
 class Particle {
     constructor(x, y, color) { this.reset(x, y, color); }
     reset(x, y, color) {
@@ -332,10 +361,13 @@ class Particle {
 }
 
 class ObjectPool {
-    constructor(createFn, maxSize = 500) { this.createFn = createFn; this.maxSize = maxSize; this.pool = []; this.active = []; }
+    constructor(createFn, maxSize = 400) { this.createFn = createFn; this.maxSize = maxSize; this.pool = []; this.active = []; }
     acquire(...args) { let obj = this.pool.pop(); if (!obj) obj = this.createFn(...args); obj.active = true; this.active.push(obj); return obj; }
     release(obj) { obj.active = false; const idx = this.active.indexOf(obj); if (idx > -1) this.active.splice(idx, 1); if (this.pool.length < this.maxSize) this.pool.push(obj); }
-    releaseAll() { while (this.active.length > 0) this.release(this.active[0]); }
+    releaseAll() { 
+        for (let obj of this.active) { obj.active = false; this.pool.push(obj); }
+        this.active = [];
+    }
     get activeObjects() { return [...this.active]; }
 }
 
@@ -352,7 +384,7 @@ function showEloChange(change) {
     el.textContent = (change >= 0 ? '+' : '') + Math.floor(change);
     document.body.appendChild(el);
     if (change >= 0) AudioSys.eloGain(); else AudioSys.eloLoss();
-    safeTimeout(() => el.remove(), 1500);
+    safeTimeout(() => { if (el && el.remove) el.remove(); }, 1500);
 }
 function calculateEloChange() {
     const coinsBonus = Math.floor(roundCoins * CONFIG.elo.coinsMultiplier);
@@ -407,7 +439,7 @@ function renderSkins() {
     const g = document.getElementById('skinsGrid'); if(!g) return;
     g.innerHTML = '';
     const all = [{id:'default',name:'Стандарт',color:'#4af626'}, ...CHEST_SKINS];
-    all.forEach(s => {
+    for (let s of all) {
         const u = unlockedSkins.includes(s.id), e = equippedSkin === s.id;
         let displayColor = s.color;
         if (s.id === 'kaleidoscope' && u) displayColor = getKaleidoscopeColor();
@@ -415,7 +447,7 @@ function renderSkins() {
         const d = document.createElement('div'); d.className = 'skin-item ' + (e ? 'equipped' : '') + (!u ? 'locked' : '');
         d.innerHTML = '<div class="skin-preview" style="background:' + (u ? displayColor : '#333') + '"></div><span class="skin-name">' + s.name + '</span><button class="equip-btn" onclick="equipSkin(\'' + s.id + '\')" ' + (!u || e ? 'disabled' : '') + '>' + (e ? '✓ Выбран' : 'Выбрать') + '</button>';
         g.appendChild(d);
-    });
+    }
 }
 
 function renderAuras() {
@@ -425,13 +457,13 @@ function renderAuras() {
         g.innerHTML = '<div style="color:#aaa; text-align:center; grid-column:1/-1;">Нет аур. Открывайте кейсы!</div>';
         return;
     }
-    AURA_SKINS.forEach(a => {
+    for (let a of AURA_SKINS) {
         const u = unlockedAuras.includes(a.id), e = equippedAura === a.id;
         const d = document.createElement('div'); 
         d.className = 'skin-item ' + (e ? 'equipped' : '') + (!u ? 'locked' : '');
         d.innerHTML = '<div class="skin-preview" style="background:' + (u ? a.color : '#333') + '; box-shadow:0 0 10px ' + (u ? a.color : '#333') + ';"></div><span class="skin-name">' + a.name + '</span><button class="equip-btn" onclick="equipAura(\'' + a.id + '\')" ' + (!u || e ? 'disabled' : '') + '>' + (e ? '✓ Активирована' : 'Активировать') + '</button>';
         g.appendChild(d);
-    });
+    }
 }
 
 function equipSkin(id) {
@@ -688,7 +720,7 @@ function showAuraEffectOnPlayer(x, y, aura) {
                 particle.style.pointerEvents = 'none';
                 particle.style.animation = 'particleExplode 0.5s ease-out forwards';
                 document.body.appendChild(particle);
-                safeTimeout(() => particle.remove(), 500);
+                safeTimeout(() => { if(particle && particle.remove) particle.remove(); }, 500);
             }, i * 10);
         }
     }
@@ -718,7 +750,7 @@ function showAuraEffectOnPlayer(x, y, aura) {
                 particle.style.pointerEvents = 'none';
                 particle.style.animation = 'particleExplode 0.6s ease-out forwards';
                 document.body.appendChild(particle);
-                safeTimeout(() => particle.remove(), 600);
+                safeTimeout(() => { if(particle && particle.remove) particle.remove(); }, 600);
             }, i * 8);
         }
     }
@@ -744,7 +776,7 @@ function showAuraEffectOnPlayer(x, y, aura) {
                 particle.style.pointerEvents = 'none';
                 particle.style.animation = 'particleExplode 0.5s ease-out forwards';
                 document.body.appendChild(particle);
-                safeTimeout(() => particle.remove(), 500);
+                safeTimeout(() => { if(particle && particle.remove) particle.remove(); }, 500);
             }, i * 12);
         }
     }
@@ -767,7 +799,7 @@ function showAuraEffectOnPlayer(x, y, aura) {
                 particle.style.pointerEvents = 'none';
                 particle.style.animation = 'particleExplode 0.5s ease-out forwards';
                 document.body.appendChild(particle);
-                safeTimeout(() => particle.remove(), 500);
+                safeTimeout(() => { if(particle && particle.remove) particle.remove(); }, 500);
             }, i * 15);
         }
     }
@@ -788,7 +820,7 @@ function showAuraEffectOnPlayer(x, y, aura) {
                 particle.style.pointerEvents = 'none';
                 particle.style.animation = 'particleExplode 0.4s ease-out forwards';
                 document.body.appendChild(particle);
-                safeTimeout(() => particle.remove(), 400);
+                safeTimeout(() => { if(particle && particle.remove) particle.remove(); }, 400);
             }, i * 10);
         }
     }
@@ -809,7 +841,7 @@ function showAuraEffectOnPlayer(x, y, aura) {
                 particle.style.pointerEvents = 'none';
                 particle.style.animation = 'particleExplode 0.4s ease-out forwards';
                 document.body.appendChild(particle);
-                safeTimeout(() => particle.remove(), 400);
+                safeTimeout(() => { if(particle && particle.remove) particle.remove(); }, 400);
             }, i * 15);
         }
     }
@@ -830,7 +862,7 @@ function showAuraEffectOnPlayer(x, y, aura) {
                 particle.style.pointerEvents = 'none';
                 particle.style.animation = 'particleExplode 0.5s ease-out forwards';
                 document.body.appendChild(particle);
-                safeTimeout(() => particle.remove(), 500);
+                safeTimeout(() => { if(particle && particle.remove) particle.remove(); }, 500);
             }, i * 15);
         }
     }
@@ -851,7 +883,7 @@ function showAuraEffectOnPlayer(x, y, aura) {
                 particle.style.pointerEvents = 'none';
                 particle.style.animation = 'particleExplode 0.5s ease-out forwards';
                 document.body.appendChild(particle);
-                safeTimeout(() => particle.remove(), 500);
+                safeTimeout(() => { if(particle && particle.remove) particle.remove(); }, 500);
             }, i * 10);
         }
     }
@@ -870,7 +902,7 @@ function showAuraEffectOnPlayer(x, y, aura) {
     safeTimeout(() => { if(activeAuraEffect) { activeAuraEffect.remove(); activeAuraEffect = null; } }, 500);
 }
 
-// ==================== КЛАСС PLAYER (СОКРАЩЁН, НО ПОЛНЫЙ) ====================
+// ==================== КЛАСС PLAYER ====================
 class Player {
     constructor() { this.reset(); }
     
@@ -889,7 +921,7 @@ class Player {
         this.gravity = CONFIG.player.gravity;
         this.friction = CONFIG.player.friction;
         this.trail = [];
-        this.maxTrail = 8;
+        this.maxTrail = 6;
         this.invulnerable = 0;
         this.dashCharges = CONFIG.player.maxDashes;
         this.dashCooldown = 0;
@@ -979,7 +1011,7 @@ class Player {
         this.velY = 0;
         AudioSys.dash();
         
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 15; i++) {
             particlePool.acquire(
                 this.x + this.width/2 + Math.random() * 20 - 10,
                 this.y + this.height/2 + Math.random() * 20 - 10,
@@ -1059,7 +1091,7 @@ class Player {
         }
         
         if (hitSomething) {
-            for (let i = 0; i < 25; i++) {
+            for (let i = 0; i < 20; i++) {
                 particlePool.acquire(
                     centerX + (Math.random() - 0.5) * 40,
                     centerY + (Math.random() - 0.5) * 40,
@@ -1071,7 +1103,7 @@ class Player {
         
         const skinData = getSkinData(equippedSkin);
         if (skinData.festive && hitSomething) {
-            for (let i = 0; i < 25; i++) {
+            for (let i = 0; i < 20; i++) {
                 safeTimeout(() => {
                     const particle = document.createElement('div');
                     particle.className = 'skin-particle-05';
@@ -1081,13 +1113,13 @@ class Player {
                     particle.style.fontSize = (Math.random() * 10 + 10) + 'px';
                     particle.style.color = ['#ffaa44', '#ff3366', '#33ff66', '#ffcc00'][Math.floor(Math.random() * 4)];
                     document.body.appendChild(particle);
-                    safeTimeout(() => particle.remove(), 1200);
+                    safeTimeout(() => { if(particle && particle.remove) particle.remove(); }, 1200);
                 }, i * 12);
             }
         }
         
         if (skinData.id === 'sixseven' && hitSomething) {
-            for (let i = 0; i < 12; i++) {
+            for (let i = 0; i < 10; i++) {
                 safeTimeout(() => {
                     const particle = document.createElement('div');
                     particle.className = 'skin-particle-67';
@@ -1095,14 +1127,14 @@ class Player {
                     particle.style.left = (centerX - cameraX + (Math.random() - 0.5) * 100) + 'px';
                     particle.style.top = (centerY + (Math.random() - 0.5) * 80) + 'px';
                     document.body.appendChild(particle);
-                    safeTimeout(() => particle.remove(), 800);
+                    safeTimeout(() => { if(particle && particle.remove) particle.remove(); }, 800);
                 }, i * 20);
             }
         }
     }
     
     createHitEffect(x, y) {
-        for (let i = 0; i < 15; i++) {
+        for (let i = 0; i < 12; i++) {
             particlePool.acquire(
                 x + (Math.random() - 0.5) * 20,
                 y + (Math.random() - 0.5) * 20,
@@ -1112,13 +1144,13 @@ class Player {
     }
     
     createJumpParticles() {
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < 8; i++) {
             particlePool.acquire(this.x + this.width/2, this.y + this.height, '#4af626');
         }
     }
     
     createLandParticles() {
-        for (let i = 0; i < 8; i++) {
+        for (let i = 0; i < 6; i++) {
             particlePool.acquire(this.x + this.width/2, this.y + this.height, '#08D9D6');
         }
     }
@@ -1160,7 +1192,7 @@ class Player {
         AudioSys.hit();
         roundDamage += amount;
         
-        for (let i = 0; i < 15; i++) {
+        for (let i = 0; i < 12; i++) {
             particlePool.acquire(this.x + this.width/2, this.y + this.height/2, color || '#ff2e63');
         }
         
@@ -1187,7 +1219,7 @@ class Player {
         this.jumpCount = 0;
         this.invulnerable = 90;
         
-        for (let i = 0; i < 25; i++) {
+        for (let i = 0; i < 20; i++) {
             particlePool.acquire(this.x + this.width/2, this.y + this.height/2, '#FF2E63');
         }
         shakeScreen(5);
@@ -1391,21 +1423,21 @@ class Boss {
         const cy = this.y+this.height/2;
         switch(this.shootPattern){
             case 0:
-                for(let i=0;i<20;i++) { particlePool.acquire(cx + (Math.random()-0.5)*50, cy + (Math.random()-0.5)*50, '#ff0000'); }
+                for(let i=0;i<15;i++) { particlePool.acquire(cx + (Math.random()-0.5)*50, cy + (Math.random()-0.5)*50, '#ff0000'); }
                 break;
             case 1:
-                for(let i=-1;i<=1;i++) { for(let j=0;j<8;j++) { particlePool.acquire(cx + i*30, cy + (Math.random()-0.5)*40, '#ff6600'); } }
+                for(let i=-1;i<=1;i++) { for(let j=0;j<6;j++) { particlePool.acquire(cx + i*30, cy + (Math.random()-0.5)*40, '#ff6600'); } }
                 break;
             case 2:
-                for(let i=0;i<12;i++) { const angle=(i/12)*Math.PI*2; const px = cx + Math.cos(angle)*40; const py = cy + Math.sin(angle)*40; particlePool.acquire(px, py, '#ff4400'); }
+                for(let i=0;i<10;i++) { const angle=(i/10)*Math.PI*2; const px = cx + Math.cos(angle)*40; const py = cy + Math.sin(angle)*40; particlePool.acquire(px, py, '#ff4400'); }
                 break;
         }
-        for(let i=0;i<15;i++) { particlePool.acquire(cx + (Math.random()-0.5)*60, cy + (Math.random()-0.5)*60, '#ff0000'); }
+        for(let i=0;i<10;i++) { particlePool.acquire(cx + (Math.random()-0.5)*60, cy + (Math.random()-0.5)*60, '#ff0000'); }
     }
     takeDamage(amount = 1) {
         this.health -= amount;
         AudioSys.bossHit();
-        for(let i=0;i<15;i++) { particlePool.acquire(this.x+Math.random()*this.width, this.y+Math.random()*this.height, '#ff0000'); }
+        for(let i=0;i<10;i++) { particlePool.acquire(this.x+Math.random()*this.width, this.y+Math.random()*this.height, '#ff0000'); }
         if(this.health <= 0){ this.defeat(); return true; }
         updateBossHealth();
         return false;
@@ -1414,7 +1446,7 @@ class Boss {
         this.active=false;
         AudioSys.bossDefeat();
         bossesDefeated++;
-        for(let i=0;i<100;i++) { particlePool.acquire(this.x+this.width/2, this.y+this.height/2, this.color); }
+        for(let i=0;i<60;i++) { particlePool.acquire(this.x+this.width/2, this.y+this.height/2, this.color); }
         addScore(5000*comboMultiplier);
         updateCombo();
         document.getElementById('bossHealthBar').style.display='none';
@@ -1531,7 +1563,7 @@ class Enemy {
         addScore(this.scoreValue*comboMultiplier);
         updateCombo();
         AudioSys.collect();
-        for(let i=0;i<20;i++) particlePool.acquire(this.x+this.width/2, this.y+this.height/2, this.color);
+        for(let i=0;i<15;i++) particlePool.acquire(this.x+this.width/2, this.y+this.height/2, this.color);
         if(Math.random()<0.35) coins.push({x:this.x+this.width/2,y:this.y+this.height/2,size:12,color:'#FFDE7D',bounce:0});
         if(Math.random()<0.12) powerUps.push({x:this.x+this.width/2,y:this.y+this.height/2,size:15,color:'#FF2E63',type:'health'});
     }
@@ -1617,7 +1649,7 @@ class FlyingEnemy {
         addScore(200*comboMultiplier);
         updateCombo();
         AudioSys.collect();
-        for(let i=0;i<30;i++) particlePool.acquire(this.x+this.width/2,this.y+this.height/2,this.color);
+        for(let i=0;i<20;i++) particlePool.acquire(this.x+this.width/2,this.y+this.height/2,this.color);
         if(Math.random()<0.5) coins.push({x:this.x+this.width/2,y:this.y+this.height/2,size:12,color:'#FFDE7D',bounce:0});
         if(Math.random()<0.3) powerUps.push({x:this.x+this.width/2,y:this.y+this.height/2,size:15,color:'#FF2E63',type:'health'});
     } 
@@ -1657,15 +1689,15 @@ class FlyingEnemy {
     }
 }
 
-// ==================== КЛАСС ВИХРЬ (РАБОЧИЙ) ====================
+// ==================== КЛАСС ВИХРЬ ====================
 class VortexEnemy { 
     constructor(x, y) {
         this.x = x;
         this.y = y;
         this.originalX = x;
         this.originalY = y;
-        this.width = 55;
-        this.height = 55;
+        this.width = 60;
+        this.height = 60;
         this.health = CONFIG.enemies.baseHealth.vortex;
         this.maxHealth = this.health;
         this.scoreValue = CONFIG.enemies.baseScore.vortex;
@@ -1680,43 +1712,41 @@ class VortexEnemy {
     
     update() {
         if (!this.active) return;
-        this.rotation += 0.1;
-        this.pulsePhase += 0.05;
-        this.floatOffset += 0.03;
-        this.y = this.originalY + Math.sin(this.floatOffset) * 15;
+        this.rotation += 0.12;
+        this.pulsePhase += 0.07;
+        this.floatOffset += 0.04;
+        this.y = this.originalY + Math.sin(this.floatOffset) * 18;
         
-        // Вектор от игрока к центру вихря
         const dx = this.x + this.width/2 - (player.x + player.width/2);
         const dy = this.y + this.height/2 - (player.y + player.height/2);
         const distance = Math.sqrt(dx * dx + dy * dy);
         
-        // ПРИТЯЖЕНИЕ К ЦЕНТРУ
-        if (distance < CONFIG.vortex.pullRadius && distance > 20) {
+        if (distance < CONFIG.vortex.pullRadius && distance > 15) {
             this.pullActive = true;
             const pullForce = CONFIG.vortex.pullStrength * (1 - distance / CONFIG.vortex.pullRadius);
             if (!player.isDashing) {
                 const pullX = (dx / distance) * pullForce * CONFIG.vortex.maxPullSpeed;
-                const pullY = (dy / distance) * pullForce * CONFIG.vortex.maxPullSpeed * 0.6;
+                const pullY = (dy / distance) * pullForce * CONFIG.vortex.maxPullSpeed * 0.65;
                 player.velX += pullX;
                 player.velY += pullY;
-                // Ограничение скорости
                 player.velX = Math.max(-CONFIG.vortex.maxPullSpeed, Math.min(CONFIG.vortex.maxPullSpeed, player.velX));
-                player.velY = Math.max(-CONFIG.vortex.maxPullSpeed * 0.7, Math.min(CONFIG.vortex.maxPullSpeed * 0.7, player.velY));
+                player.velY = Math.max(-CONFIG.vortex.maxPullSpeed * 0.8, Math.min(CONFIG.vortex.maxPullSpeed * 0.8, player.velY));
             }
-            if (frameCount % 6 === 0) {
-                particlePool.acquire(
-                    player.x + player.width/2 + (Math.random() - 0.5) * 30,
-                    player.y + player.height/2 + (Math.random() - 0.5) * 30,
-                    `rgba(0, 204, 255, 0.7)`
-                );
+            if (frameCount % 3 === 0) {
+                for (let i = 0; i < 2; i++) {
+                    particlePool.acquire(
+                        player.x + player.width/2 + (Math.random() - 0.5) * 50,
+                        player.y + player.height/2 + (Math.random() - 0.5) * 50,
+                        `rgba(0, 204, 255, 0.7)`
+                    );
+                }
             }
         } else {
             this.pullActive = false;
         }
         
-        // Урон при касании центра
         if (distance < CONFIG.vortex.damageRadius) {
-            if (player.takeDamage(12, (player.x < this.x ? 1 : -1) * 5, -4, this.color)) return;
+            if (player.takeDamage(15, (player.x < this.x ? 1 : -1) * 6, -5, this.color)) return;
         }
     }
     
@@ -1733,7 +1763,7 @@ class VortexEnemy {
                 '#88ddff'
             );
         }
-        shakeScreen(1);
+        shakeScreen(2);
         return false;
     }
     
@@ -1742,16 +1772,18 @@ class VortexEnemy {
         addScore(this.scoreValue * comboMultiplier);
         updateCombo();
         AudioSys.collect();
-        for (let i = 0; i < 40; i++) {
-            const angle = (i / 40) * Math.PI * 2;
+        for (let i = 0; i < 50; i++) {
+            const angle = (i / 50) * Math.PI * 2;
+            const speed = 3 + Math.random() * 5;
             particlePool.acquire(
-                this.x + this.width/2 + Math.cos(angle) * 3,
-                this.y + this.height/2 + Math.sin(angle) * 3,
+                this.x + this.width/2 + Math.cos(angle) * speed,
+                this.y + this.height/2 + Math.sin(angle) * speed,
                 this.color
             );
         }
-        if (Math.random() < 0.4) coins.push({x: this.x + this.width/2, y: this.y + this.height/2, size: 12, color: '#FFDE7D', bounce: 0});
-        if (Math.random() < 0.3) powerUps.push({x: this.x + this.width/2, y: this.y, size: 15, color: '#00ccff', type: 'dash'});
+        if (Math.random() < 0.5) coins.push({x: this.x + this.width/2, y: this.y + this.height/2, size: 12, color: '#FFDE7D', bounce: 0});
+        if (Math.random() < 0.35) powerUps.push({x: this.x + this.width/2, y: this.y, size: 15, color: '#00ccff', type: 'dash'});
+        shakeScreen(4);
     }
     
     draw(ctx) {
@@ -1765,24 +1797,23 @@ class VortexEnemy {
         ctx.rotate(this.rotation);
         
         ctx.shadowColor = this.color;
-        ctx.shadowBlur = 20 + Math.sin(this.pulsePhase) * 10;
+        ctx.shadowBlur = 30 + Math.sin(this.pulsePhase) * 15;
         
-        // Спирали
         ctx.strokeStyle = this.color;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 4;
         ctx.beginPath();
         for (let i = 0; i < 3; i++) {
-            ctx.arc(0, 0, 25 - i * 6, this.rotation, this.rotation + Math.PI * 2);
+            ctx.arc(0, 0, 28 - i * 7, this.rotation, this.rotation + Math.PI * 2);
         }
         ctx.stroke();
         
         ctx.strokeStyle = this.innerColor;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2.5;
         ctx.beginPath();
-        for (let i = 0; i < 360; i += 15) {
-            const r = 20 - (i / 360) * 18;
-            const x = Math.cos(i * Math.PI/180 + this.rotation * 2) * r;
-            const y = Math.sin(i * Math.PI/180 + this.rotation * 2) * r;
+        for (let i = 0; i < 360; i += 12) {
+            const r = 22 - (i / 360) * 20;
+            const x = Math.cos(i * Math.PI/180 + this.rotation * 2.5) * r;
+            const y = Math.sin(i * Math.PI/180 + this.rotation * 2.5) * r;
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
@@ -1791,54 +1822,50 @@ class VortexEnemy {
         ctx.restore();
         ctx.shadowBlur = 0;
         
-        // Глаза
         ctx.fillStyle = '#fff';
         ctx.beginPath();
-        ctx.ellipse(cx - 12, cy - 8, 9, 11, 0, 0, Math.PI * 2);
-        ctx.ellipse(cx + 12, cy - 8, 9, 11, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx - 14, cy - 10, 10, 12, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx + 14, cy - 10, 10, 12, 0, 0, Math.PI * 2);
         ctx.fill();
         
         ctx.fillStyle = '#000';
-        const lookX = (player.x + player.width/2 - (this.x + this.width/2)) * 0.08;
-        const lookY = (player.y + player.height/2 - (this.y + this.height/2)) * 0.08;
+        const lookX = (player.x + player.width/2 - (this.x + this.width/2)) * 0.1;
+        const lookY = (player.y + player.height/2 - (this.y + this.height/2)) * 0.1;
         ctx.beginPath();
-        ctx.arc(cx - 12 + Math.max(-4, Math.min(4, lookX)), cy - 8 + Math.max(-4, Math.min(4, lookY)), 5, 0, Math.PI * 2);
-        ctx.arc(cx + 12 + Math.max(-4, Math.min(4, lookX)), cy - 8 + Math.max(-4, Math.min(4, lookY)), 5, 0, Math.PI * 2);
+        ctx.arc(cx - 14 + Math.max(-5, Math.min(5, lookX)), cy - 10 + Math.max(-5, Math.min(5, lookY)), 6, 0, Math.PI * 2);
+        ctx.arc(cx + 14 + Math.max(-5, Math.min(5, lookX)), cy - 10 + Math.max(-5, Math.min(5, lookY)), 6, 0, Math.PI * 2);
         ctx.fill();
         
         ctx.fillStyle = '#fff';
         ctx.beginPath();
-        ctx.arc(cx - 14 + Math.max(-2, Math.min(2, lookX)), cy - 11 + Math.max(-2, Math.min(2, lookY)), 2, 0, Math.PI * 2);
-        ctx.arc(cx + 10 + Math.max(-2, Math.min(2, lookX)), cy - 11 + Math.max(-2, Math.min(2, lookY)), 2, 0, Math.PI * 2);
+        ctx.arc(cx - 16 + Math.max(-3, Math.min(3, lookX)), cy - 13 + Math.max(-3, Math.min(3, lookY)), 2.5, 0, Math.PI * 2);
+        ctx.arc(cx + 12 + Math.max(-3, Math.min(3, lookX)), cy - 13 + Math.max(-3, Math.min(3, lookY)), 2.5, 0, Math.PI * 2);
         ctx.fill();
         
-        // Круг притяжения
         if (this.pullActive) {
-            ctx.strokeStyle = `rgba(0, 204, 255, ${0.4 + Math.sin(Date.now()/100)*0.2})`;
-            ctx.lineWidth = 2;
-            ctx.setLineDash([8, 6]);
+            ctx.strokeStyle = `rgba(0, 204, 255, ${0.6 + Math.sin(Date.now()/80)*0.3})`;
+            ctx.lineWidth = 3;
+            ctx.setLineDash([10, 8]);
             ctx.beginPath();
             ctx.arc(cx, cy, CONFIG.vortex.pullRadius, 0, Math.PI * 2);
             ctx.stroke();
             ctx.setLineDash([]);
             
-            // Стрелки к центру
-            for (let i = 0; i < 8; i++) {
-                const angle = (i / 8) * Math.PI * 2;
-                const arrowX = cx + Math.cos(angle) * (CONFIG.vortex.pullRadius - 20);
-                const arrowY = cy + Math.sin(angle) * (CONFIG.vortex.pullRadius - 20);
+            for (let i = 0; i < 12; i++) {
+                const angle = (i / 12) * Math.PI * 2;
+                const arrowX = cx + Math.cos(angle) * (CONFIG.vortex.pullRadius - 25);
+                const arrowY = cy + Math.sin(angle) * (CONFIG.vortex.pullRadius - 25);
                 ctx.beginPath();
                 ctx.moveTo(arrowX, arrowY);
-                ctx.lineTo(arrowX - Math.cos(angle) * 12, arrowY - Math.sin(angle) * 12);
-                ctx.lineTo(arrowX - Math.cos(angle) * 7 + Math.sin(angle) * 5, arrowY - Math.sin(angle) * 7 - Math.cos(angle) * 5);
-                ctx.lineTo(arrowX - Math.cos(angle) * 7 - Math.sin(angle) * 5, arrowY - Math.sin(angle) * 7 + Math.cos(angle) * 5);
+                ctx.lineTo(arrowX - Math.cos(angle) * 16, arrowY - Math.sin(angle) * 16);
+                ctx.lineTo(arrowX - Math.cos(angle) * 9 + Math.sin(angle) * 7, arrowY - Math.sin(angle) * 9 - Math.cos(angle) * 7);
+                ctx.lineTo(arrowX - Math.cos(angle) * 9 - Math.sin(angle) * 7, arrowY - Math.sin(angle) * 9 + Math.cos(angle) * 7);
                 ctx.closePath();
-                ctx.fillStyle = `rgba(0, 204, 255, 0.5)`;
+                ctx.fillStyle = `rgba(0, 204, 255, 0.6)`;
                 ctx.fill();
             }
         }
         
-        // Полоса здоровья
         if (this.health < this.maxHealth) {
             ctx.fillStyle = '#333';
             ctx.fillRect(dx, this.y - 15, this.width, 5);
@@ -1967,7 +1994,6 @@ function generateLevel(level){
         if(bhb) bhb.style.display='none'; 
     } 
     
-    // ВИХРЬ на уровнях 3, 6, 9, 12...
     if (level >= 3 && level % 3 === 0 && !isBossLevel) {
         const vortexCount = Math.min(2, Math.floor(level / 3));
         for (let i = 0; i < vortexCount; i++) {
@@ -1986,9 +2012,9 @@ function generateLevel(level){
 
 // ==================== ИГРОВАЯ ЛОГИКА ====================
 function updateCamera(){const targetX=player.x-canvas.width*CONFIG.camera.playerOffset;cameraX+=(targetX-cameraX)*CONFIG.camera.followSpeed;cameraX=Math.max(0,Math.min(cameraX,levelWidth-canvas.width));}
-function updateCoins(){for(let i=coins.length-1;i>=0;i--){const c=coins[i];c.bounce+=0.1;c.y+=Math.sin(c.bounce)*0.5;if(player.checkCollision({x:c.x-c.size/2,y:c.y-c.size/2,width:c.size,height:c.size})){addScore(50*comboMultiplier);updateCombo();AudioSys.collect();roundCoins++;for(let j=0;j<15;j++)particlePool.acquire(c.x,c.y,'#FFDE7D');coins.splice(i,1);}}}
-function updateKeys(){for(let i=levelKeys.length-1;i>=0;i--){const k=levelKeys[i];if(k.collected)continue;k.floatOffset+=0.06;const ky=k.y+Math.sin(k.floatOffset)*6;if(player.checkCollision({x:k.x,y:ky,width:k.size,height:k.size})){k.collected=true;totalKeys++;saveAllData();AudioSys.collect();for(let j=0;j<20;j++)particlePool.acquire(k.x+k.size/2,ky+k.size/2,'#00BFFF');levelKeys.splice(i,1);}}}
-function updatePowerUps(){for(let i=powerUps.length-1;i>=0;i--){const p=powerUps[i];p.y+=Math.sin(Date.now()/500)*0.5;if(player.checkCollision({x:p.x-p.size/2,y:p.y-p.size/2,width:p.size,height:p.size})){if(p.type==='health'){playerHealth=Math.min(maxHealth,playerHealth+30);updateHealthBar();}else if(p.type==='dash'){player.dashCharges=Math.min(CONFIG.player.maxDashes,player.dashCharges+1);updateDashIndicator();}for(let j=0;j<20;j++)particlePool.acquire(p.x,p.y,p.color);AudioSys.collect();powerUps.splice(i,1);}}}
+function updateCoins(){for(let i=coins.length-1;i>=0;i--){const c=coins[i];c.bounce+=0.1;c.y+=Math.sin(c.bounce)*0.5;if(player.checkCollision({x:c.x-c.size/2,y:c.y-c.size/2,width:c.size,height:c.size})){addScore(50*comboMultiplier);updateCombo();AudioSys.collect();roundCoins++;for(let j=0;j<10;j++)particlePool.acquire(c.x,c.y,'#FFDE7D');coins.splice(i,1);}}}
+function updateKeys(){for(let i=levelKeys.length-1;i>=0;i--){const k=levelKeys[i];if(k.collected)continue;k.floatOffset+=0.06;const ky=k.y+Math.sin(k.floatOffset)*6;if(player.checkCollision({x:k.x,y:ky,width:k.size,height:k.size})){k.collected=true;totalKeys++;saveAllData();AudioSys.collect();for(let j=0;j<15;j++)particlePool.acquire(k.x+k.size/2,ky+k.size/2,'#00BFFF');levelKeys.splice(i,1);}}}
+function updatePowerUps(){for(let i=powerUps.length-1;i>=0;i--){const p=powerUps[i];p.y+=Math.sin(Date.now()/500)*0.5;if(player.checkCollision({x:p.x-p.size/2,y:p.y-p.size/2,width:p.size,height:p.size})){if(p.type==='health'){playerHealth=Math.min(maxHealth,playerHealth+30);updateHealthBar();}else if(p.type==='dash'){player.dashCharges=Math.min(CONFIG.player.maxDashes,player.dashCharges+1);updateDashIndicator();}for(let j=0;j<15;j++)particlePool.acquire(p.x,p.y,p.color);AudioSys.collect();powerUps.splice(i,1);}}}
 function checkEnemyCollisions(){
     for(let e of enemies){
         if(e.active && player.checkCollision(e)){
@@ -2028,8 +2054,8 @@ function drawBackground() {
         grad.addColorStop(1, currentBiom.colors[1]);
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = 'rgba(255,255,255,0.05)';
-        for (let i = 0; i < 100; i++) {
+        ctx.fillStyle = 'rgba(255,255,255,0.03)';
+        for (let i = 0; i < 80; i++) {
             ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 2, 2);
         }
     }
@@ -2039,12 +2065,12 @@ function drawBackground() {
         grad.addColorStop(1, '#000000');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        for (let layer = 0; layer < 3; layer++) {
+        for (let layer = 0; layer < 2; layer++) {
             const spd = 0.05 + layer * 0.1;
             const alpha = 0.1 + layer * 0.15;
             const size = 1 + layer * 0.5;
             ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-            for (let i = 0; i < 40; i++) {
+            for (let i = 0; i < 30; i++) {
                 const x = (i * 67 + cameraX * spd) % canvas.width;
                 const y = (i * 41 + layer * 100) % canvas.height;
                 ctx.fillRect(x, y, size, size);
@@ -2113,7 +2139,8 @@ function gameLoop(){
 }
 
 function completeLevel(){
-    gameRunning=false;
+    gameRunning = false;
+    isTransitioning = true;
     if(gameLoopId) cancelAnimationFrame(gameLoopId);
     AudioSys.levelComplete();
     changeBiom();
@@ -2135,32 +2162,45 @@ function completeLevel(){
     const lcDiv = document.getElementById('levelComplete');
     if(lcDiv) lcDiv.style.display='flex';
     showEloChange(eloResult.change);
-    for(let i=0;i<80;i++) particlePool.acquire(player.x+player.width/2,player.y+player.height/2,platformTextures[Math.floor(Math.random()*platformTextures.length)].color);
+    for(let i=0;i<50;i++) particlePool.acquire(player.x+player.width/2,player.y+player.height/2,platformTextures[Math.floor(Math.random()*platformTextures.length)].color);
     safeTimeout(()=>{
         const lcDiv2 = document.getElementById('levelComplete');
         if(lcDiv2) lcDiv2.style.display='none';
         currentLevel++;
+        
+        // ОЧИСТКА ВСЕХ МАССИВОВ ПЕРЕД ГЕНЕРАЦИЕЙ НОВОГО УРОВНЯ
+        platforms = [];
+        enemies = [];
+        flyingEnemies = [];
+        coins = [];
+        powerUps = [];
+        levelKeys = [];
+        if(particlePool) particlePool.releaseAll();
+        
         generateLevel(currentLevel);
         player.reset();
-        playerHealth=maxHealth;
+        playerHealth = maxHealth;
         updateHealthBar();
-        cameraX=0;
-        comboCount=1;
-        comboMultiplier=1;
-        maxCombo=1;
-        lastCheckpointX=0;
+        cameraX = 0;
+        comboCount = 1;
+        comboMultiplier = 1;
+        maxCombo = 1;
+        lastCheckpointX = 0;
+        frameCount = 0;
         updateUI();
         updateDashIndicator();
         updateEloDisplay();
-        gameRunning=true;
+        gameRunning = true;
+        isTransitioning = false;
         gameLoop();
-    },2500);
+    }, 2000);
 }
 
 function gameOver(){
     gameRunning=false;
+    isTransitioning = false;
     if(gameLoopId) cancelAnimationFrame(gameLoopId);
-    clearAllTimeouts();
+    clearAllTimeoutsAndIntervals();
     AudioSys.gameOver();
     const fs = document.getElementById('finalScore');
     if(fs) fs.textContent=score;
@@ -2177,28 +2217,50 @@ function gameOver(){
 }
 
 function restartGame(){
+    isTransitioning = true;
     if(gameLoopId) cancelAnimationFrame(gameLoopId);
-    clearAllTimeouts();
+    clearAllTimeoutsAndIntervals();
     if(activeAuraEffect) { activeAuraEffect.remove(); activeAuraEffect = null; }
     if(particlePool) particlePool.releaseAll();
+    
+    // Очистка всех массивов
+    platforms = [];
+    enemies = [];
+    flyingEnemies = [];
+    coins = [];
+    powerUps = [];
+    levelKeys = [];
+    
     const goDiv = document.getElementById('gameOver');
     if(goDiv) goDiv.style.display='none';
     const pmDiv = document.getElementById('pauseMenu');
     if(pmDiv) pmDiv.style.display='none';
     const csDiv = document.getElementById('caseShopScreen');
     if(csDiv) csDiv.style.display='none';
-    currentLevel=1;score=0;playerHealth=maxHealth;comboCount=1;maxCombo=1;comboMultiplier=1;lastCheckpointX=0;bossesDefeated=0;
-    roundCoins=0;roundDamage=0;
+    
+    currentLevel = 1;
+    score = 0;
+    playerHealth = maxHealth;
+    comboCount = 1;
+    maxCombo = 1;
+    comboMultiplier = 1;
+    lastCheckpointX = 0;
+    bossesDefeated = 0;
+    roundCoins = 0;
+    roundDamage = 0;
+    frameCount = 0;
+    
     generateLevel(currentLevel);
     player = new Player();
-    cameraX=0;
+    cameraX = 0;
     updateUI();
     updateHealthBar();
     updateDashIndicator();
     updateEloDisplay();
     const bhb = document.getElementById('bossHealthBar');
     if(bhb) bhb.style.display='none';
-    gameRunning=true;
+    gameRunning = true;
+    isTransitioning = false;
     gameLoop();
 }
 
@@ -2285,11 +2347,13 @@ async function initGame(){
     loadAuraImages();
     particlePool = new ObjectPool((x,y,c) => new Particle(x,y,c), CONFIG.particles.maxCount);
     let progress = 0;
-    const pi = setInterval(() => {
+    const pi = safeInterval(() => {
         progress += Math.random() * 15;
         const pf = document.getElementById('progressFill');
         if(pf) pf.style.width = `${Math.min(progress, 100)}%`;
         if(progress >= 100){
+            const index = activeIntervals.indexOf(pi);
+            if (index > -1) activeIntervals.splice(index, 1);
             clearInterval(pi);
             safeTimeout(() => {
                 const loading = document.getElementById('loading');
